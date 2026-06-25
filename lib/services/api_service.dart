@@ -47,17 +47,26 @@ class ApiService {
     }
   }
 
-  static Future<bool> markAsPrinted(String orderId, String shopId) async {
+  static Future<String?> markAsPrinted(String orderId, String shopId) async {
     try {
       final response = await _client.post(
         Uri.parse('$_baseUrl/mark-printed'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'orderId': orderId, 'shopId': shopId}),
       );
-      return response.statusCode == 200;
+      if (response.statusCode == 200) {
+        return null;
+      } else {
+        try {
+          final data = jsonDecode(response.body);
+          return data['error'] ?? "Server error (${response.statusCode})";
+        } catch (_) {
+          return "Server error: ${response.statusCode}";
+        }
+      }
     } catch (e) {
       debugPrint("API: markAsPrinted error: $e");
-      return false;
+      return "Network connection error: $e";
     }
   }
 

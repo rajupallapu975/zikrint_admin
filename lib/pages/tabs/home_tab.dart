@@ -480,15 +480,15 @@ class _HomeTabState extends State<HomeTab> {
               );
 
               debugPrint("🛰️ [ADMIN] Sending 'Mark Printed' Request to Backend for $firstOrderId...");
-              final bool success = await ApiService.markAsPrinted(firstOrderId, widget.user.uid);
-              debugPrint("🔌 [ADMIN] Backend Response: ${success ? 'SUCCESS' : 'FAILURE'}");
+              final String? errorMsg = await ApiService.markAsPrinted(firstOrderId, widget.user.uid);
+              debugPrint("🔌 [ADMIN] Backend Response: ${errorMsg == null ? 'SUCCESS' : 'FAILURE: $errorMsg'}");
               
               if (mounted) {
                 Navigator.pop(context); // Close loading
                 navigator.pop(); // Close confirm dialog
               }
 
-              if (success) {
+              if (errorMsg == null) {
                 debugPrint("✨ [ADMIN] UI Updating: Batch $mainId marked as completed locally.");
                 setState(() {
                   _completedBatches.add(mainId);
@@ -500,11 +500,11 @@ class _HomeTabState extends State<HomeTab> {
                   ));
                 }
               } else {
-                debugPrint("❌ [ADMIN] Sync failed for $firstOrderId. Check backend logs.");
+                debugPrint("❌ [ADMIN] Sync failed for $firstOrderId: $errorMsg");
                 if (mounted) {
-                  scaffoldMessenger.showSnackBar(const SnackBar(
-                    content: Text("❌ Sync Failed. Please check internet or use fallback."),
-                    backgroundColor: Colors.red,
+                  scaffoldMessenger.showSnackBar(SnackBar(
+                    content: Text("❌ Sync Failed: $errorMsg"),
+                    backgroundColor: AppColors.error,
                   ));
                 }
               }
