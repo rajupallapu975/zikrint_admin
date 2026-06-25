@@ -623,7 +623,7 @@ class _HomeTabState extends State<HomeTab> {
                        
                        if (url.isNotEmpty) {
                          try {
-                           final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://13.233.76.8:5001';
+                           final backendUrl = dotenv.env['BACKEND_URL'] ?? 'https://zikrint.duckdns.org';
                            
                            // 🚀 BULLETPROOF: Force clean extension detection
                            String cleanExt = "pdf";

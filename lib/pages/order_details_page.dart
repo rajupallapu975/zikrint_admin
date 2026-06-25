@@ -109,7 +109,7 @@ class _OrderDetailsPageState extends State<OrderDetailsPage> {
                         onPressed: () async {
                           if (url.isNotEmpty) {
                             try {
-                              final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://13.233.76.8:5001';
+                              final backendUrl = dotenv.env['BACKEND_URL'] ?? 'https://zikrint.duckdns.org';
                               
                               String cleanExt = "pdf";
                               if (url.toLowerCase().contains(".jpg") || url.toLowerCase().contains(".jpeg") || url.toLowerCase().contains("format=jpg")) {

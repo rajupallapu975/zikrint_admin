@@ -6,7 +6,7 @@ import 'platform_client_factory.dart';
 import '../models/order_model.dart';
 
 class ApiService {
-  static final String _baseUrl = dotenv.env['BACKEND_URL'] ?? 'http://13.233.76.8:5001';
+  static final String _baseUrl = dotenv.env['BACKEND_URL'] ?? 'https://zikrint.duckdns.org';
 
   // Create a client that handles platform-specific requirements
   static http.Client get _client => PlatformClient.getClient();
