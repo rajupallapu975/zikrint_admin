@@ -14,7 +14,7 @@ class AuthService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   
   // Web Client ID from your google-services.json (client_type 3)
-  static final String webClientId = dotenv.env['GOOGLE_WEB_CLIENT_ID'] ?? "1071627103248-kicf8hvemv2tk1up7j9ib9da74k5v7bl.apps.googleusercontent.com";
+  static final String webClientId = dotenv.env['GOOGLE_WEB_CLIENT_ID'] ?? "71044416645-9je3u2l0usttn4kutngksqv0un3itscm.apps.googleusercontent.com";
 
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     clientId: webClientId,

@@ -32,12 +32,12 @@ void main() async {
     if (kIsWeb) {
       await Firebase.initializeApp(
         options: FirebaseOptions(
-          apiKey: dotenv.env['FIREBASE_API_KEY'] ?? "AIzaSyCG9N9vDUPmWyId1ZgkiPa7O5vXLp-2l1M",
-          authDomain: "thinkink-admin.firebaseapp.com",
-          projectId: "thinkink-admin",
-          storageBucket: "thinkink-admin.firebasestorage.app",
-          messagingSenderId: "1071627103248", 
-          appId: "1:1071627103248:web:a67da5bcbf4d1ad29bae95", 
+          apiKey: dotenv.env['FIREBASE_API_KEY'] ?? "AIzaSyAM_UmfDJyCSObGjyb2-Cp0titzv068CLM",
+          authDomain: "zikrint-admin.firebaseapp.com",
+          projectId: "zikrint-admin",
+          storageBucket: "zikrint-admin.firebasestorage.app",
+          messagingSenderId: "71044416645", 
+          appId: "1:71044416645:web:20135d3480fc6e3ab7d5ec", 
         ),
       );
     } else {
