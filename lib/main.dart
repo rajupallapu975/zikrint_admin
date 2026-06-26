@@ -18,6 +18,8 @@ import 'models/app_user.dart';
 import 'package:flutter/foundation.dart';
 import 'services/history_service.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
+import 'dart:async';
+import 'utils/web_helpers/web_tab_close.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -135,12 +137,14 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _isLoading = true;
   late PageController _pageController;
   List<Widget>? _pages;
+  StreamSubscription<DocumentSnapshot>? _shopSubscription;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: _selectedIndex);
-    _fetchShopData();
+    _listenToShopData();
+    initializeTabCloseListener(widget.user.uid);
     
     // 🎧 Initialize Global Notification Captain
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -175,37 +179,33 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   void dispose() {
+    _shopSubscription?.cancel();
     _pageController.dispose();
     super.dispose();
   }
 
-  Future<void> _fetchShopData() async {
-    try {
-      final doc = await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).get();
+  void _listenToShopData() {
+    _shopSubscription = FirebaseFirestore.instance
+        .collection('shops')
+        .doc(widget.user.uid)
+        .snapshots()
+        .listen((doc) {
       if (mounted) {
         setState(() {
           shopData = doc.data();
-          _initializePages(); // Initialize pages after data is fetched
+          _initializePages();
           _isLoading = false;
         });
       }
-    } catch (e) {
-      debugPrint("Error fetching shop data: $e");
+    }, onError: (e) {
+      debugPrint("Error listening to shop data: $e");
       if (mounted) {
         setState(() {
-          _initializePages(); // Still initialize with null data
+          _initializePages();
           _isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Error loading shop: $e"),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 10),
-            action: SnackBarAction(label: "RETRY", textColor: Colors.white, onPressed: _fetchShopData),
-          ),
-        );
       }
-    }
+    });
   }
 
   void _onPageChanged(int index) {
@@ -230,6 +230,76 @@ class _MyHomePageState extends State<MyHomePage> {
 
     final double width = MediaQuery.of(context).size.width;
     final bool isWide = width > 900;
+    final bool isOnline = shopData?['isOpen'] == true;
+
+    if (!isOnline) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        body: Center(
+          child: Container(
+            width: 380,
+            margin: const EdgeInsets.symmetric(horizontal: 24),
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(32),
+              boxShadow: AppColors.mediumShadow,
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: 0.9, end: 1.1),
+                  duration: const Duration(seconds: 1),
+                  curve: Curves.easeInOutSine,
+                  builder: (context, scale, child) {
+                    return Transform.scale(
+                      scale: scale,
+                      child: Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: AppColors.error.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.cloud_off_rounded, color: AppColors.error, size: 48),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 28),
+                Text(
+                  "You are Currently Offline",
+                  style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 20, color: AppColors.textPrimary),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  "Turn on Online Mode to receive new print orders and make your shop visible to users.",
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.manrope(color: AppColors.textSecondary, fontSize: 14, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 36),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).update({'isOpen': true});
+                  },
+                  icon: const Icon(Icons.power_settings_new_rounded),
+                  label: const Text("GO ONLINE NOW", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryBlue,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 56),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    elevation: 0,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return PopScope(
       canPop: false,
@@ -267,6 +337,23 @@ class _MyHomePageState extends State<MyHomePage> {
                       NavigationRailDestination(icon: Icon(Icons.account_balance_wallet_rounded), label: Text("WALLET")),
                       NavigationRailDestination(icon: Icon(Icons.person_rounded), label: Text("PROFILE")),
                     ],
+                    trailing: Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text("ONLINE", style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 10, color: Colors.green)),
+                          const SizedBox(height: 4),
+                          Switch(
+                            value: isOnline,
+                            activeColor: Colors.green,
+                            onChanged: (val) async {
+                              await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).update({'isOpen': val});
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 
                 Expanded(
@@ -284,8 +371,19 @@ class _MyHomePageState extends State<MyHomePage> {
                             ],
                           ),
                           actions: [
-                             IconButton(icon: const Icon(Icons.notifications_none_rounded), onPressed: () {}),
-                             const SizedBox(width: 8),
+                            Row(
+                              children: [
+                                Text("ONLINE", style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 10, color: Colors.green)),
+                                Switch(
+                                  value: isOnline,
+                                  activeColor: Colors.green,
+                                  onChanged: (val) async {
+                                    await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).update({'isOpen': val});
+                                  },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(width: 8),
                           ],
                         ),
                         body: PageView(
