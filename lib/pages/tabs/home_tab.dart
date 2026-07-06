@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
+import '../zikrinter_services_page.dart';
 // import 'package:firebase_messaging/firebase_messaging.dart'; // Unused
 // import 'package:flutter/foundation.dart'; // Unnecessary
 
@@ -21,7 +22,8 @@ import 'dart:convert';
 
 class HomeTab extends StatefulWidget {
   final AppUser user;
-  const HomeTab({super.key, required this.user});
+  final VoidCallback? onServicesTabRequested;
+  const HomeTab({super.key, required this.user, this.onServicesTabRequested});
 
   @override
   State<HomeTab> createState() => _HomeTabState();
@@ -107,6 +109,7 @@ class _HomeTabState extends State<HomeTab> {
           
           return Column(
             children: [
+              _buildServicesBanner(),
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
                   stream: shopRef.collection('orders').snapshots(),
@@ -671,6 +674,59 @@ class _HomeTabState extends State<HomeTab> {
       child: Text(
         label,
         style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w900, color: color, letterSpacing: 0.5),
+      ),
+    );
+  }
+
+  Widget _buildServicesBanner() {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      color: AppColors.primaryBlue.withOpacity(0.08),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: AppColors.primaryBlue, width: 1),
+      ),
+      child: InkWell(
+        onTap: () {
+          if (widget.onServicesTabRequested != null) {
+            widget.onServicesTabRequested!();
+          }
+        },
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: const BoxDecoration(
+                  color: AppColors.primaryBlue,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.print_rounded, color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Verify & Enable Printing Services',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Configure custom pricing for Bulk/Single/Double print services & agree to platform commission.',
+                      style: GoogleFonts.manrope(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: AppColors.primaryBlue),
+            ],
+          ),
+        ),
       ),
     );
   }

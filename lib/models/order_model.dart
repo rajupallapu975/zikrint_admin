@@ -21,6 +21,13 @@ class OrderModel {
   final List<String> fileNames;
   final List<Map<String, dynamic>> fileSettings;
   final List<String> viewUrls;
+  final String? serviceName;
+  final String? paperSize;
+  final Map<String, dynamic> customParameters;
+  final bool generateCoverPage;
+  final double coverPageCharge;
+  final double printingCost;
+  final double platformCommission;
   
   OrderModel({
     required this.id,
@@ -44,6 +51,13 @@ class OrderModel {
     this.lastPrinterUsed,
     this.customerPhone,
     this.customId,
+    this.serviceName,
+    this.paperSize,
+    this.customParameters = const {},
+    this.generateCoverPage = false,
+    this.coverPageCharge = 0.0,
+    this.printingCost = 0.0,
+    this.platformCommission = 0.0,
   });
 
   final String? customId;
@@ -119,6 +133,11 @@ class OrderModel {
        finalStatus = rawStatus;
     }
     
+    Map<String, dynamic> customParams = {};
+    if (printSettings is Map && printSettings['customParameters'] is Map) {
+      customParams = Map<String, dynamic>.from(printSettings['customParameters']);
+    }
+
     return OrderModel(
       id: docId,
       customerName: data['customerName'] ?? 'Guest',
@@ -140,6 +159,13 @@ class OrderModel {
       fileUrl: data['fileUrl'] ?? (urls.isNotEmpty ? urls[0] : null),
       orderCode: data['orderCode']?.toString() ?? docId,
       customId: data['customId']?.toString(),
+      serviceName: data['serviceName'] ?? (printSettings is Map ? printSettings['serviceName'] : null),
+      paperSize: data['paperSize'] ?? (printSettings is Map ? printSettings['paperSize'] : null),
+      customParameters: customParams,
+      generateCoverPage: data['generateCoverPage'] == true,
+      coverPageCharge: data['coverPageCharge'] != null ? (data['coverPageCharge'] as num).toDouble() : 0.0,
+      printingCost: data['printingCost'] != null ? (data['printingCost'] as num).toDouble() : (data['shopkeeperEarnings'] != null ? (data['shopkeeperEarnings'] as num).toDouble() : (data['amount'] ?? 0.0).toDouble()),
+      platformCommission: data['platformCommission'] != null ? (data['platformCommission'] as num).toDouble() : (data['platformEarnings'] != null ? (data['platformEarnings'] as num).toDouble() : 0.0),
     );
   }
 
@@ -173,5 +199,9 @@ class OrderModel {
     'fileSettings': fileSettings,
     'viewUrls': viewUrls,
     'customId': customId,
+    'generateCoverPage': generateCoverPage,
+    'coverPageCharge': coverPageCharge,
+    'printingCost': printingCost,
+    'platformCommission': platformCommission,
   };
 }

@@ -10,6 +10,7 @@ import 'pages/tabs/pending_tab.dart';
 import 'pages/tabs/history_tab.dart';
 import 'pages/tabs/profile_tab.dart';
 import 'pages/tabs/insights_tab.dart';
+import 'pages/zikrinter_services_page.dart';
 import 'utils/app_colors.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -62,6 +63,41 @@ void main() async {
       debugPrint("🚀 PSFC Secondary App Initialized");
     } catch (e) {
       debugPrint("⚠️ PSFC Init Error (likely already initialized): $e");
+    }
+
+    // 🏪 Initialize Zikrinter Project as a secondary app for service catalogs
+    try {
+      await Firebase.initializeApp(
+        name: "zikrinter",
+        options: kIsWeb
+            ? const FirebaseOptions(
+                apiKey: 'AIzaSyDB-g9ey111EaWfj5sf2n7KjY1MMjjibh4',
+                appId: '1:947972179342:web:38e04561ca1132f60210df',
+                messagingSenderId: '947972179342',
+                projectId: 'zikrinter',
+                authDomain: 'zikrinter.firebaseapp.com',
+                storageBucket: 'zikrinter.firebasestorage.app',
+              )
+            : (defaultTargetPlatform == TargetPlatform.iOS
+                ? const FirebaseOptions(
+                    apiKey: 'AIzaSyCk48p1rCR74_J2WyFJ9ZGVkjw8AhC-yZ8',
+                    appId: '1:947972179342:ios:271ef98eb23942b70210df',
+                    messagingSenderId: '947972179342',
+                    projectId: 'zikrinter',
+                    storageBucket: 'zikrinter.firebasestorage.app',
+                    iosBundleId: 'com.zikrinter.zikrinter',
+                  )
+                : const FirebaseOptions(
+                    apiKey: 'AIzaSyBCKnAcecrspWbELBfO6f0OegcfhyxrS38',
+                    appId: '1:947972179342:android:b9b56746265d8cb00210df',
+                    messagingSenderId: '947972179342',
+                    projectId: 'zikrinter',
+                    storageBucket: 'zikrinter.firebasestorage.app',
+                  )),
+      );
+      debugPrint("🚀 Zikrinter Project Secondary App Initialized");
+    } catch (e) {
+      debugPrint("⚠️ Zikrinter Project Init Error: $e");
     }
   } catch (e) {
     debugPrint("Initialization error: $e");
@@ -139,12 +175,16 @@ class _MyHomePageState extends State<MyHomePage> {
   List<Widget>? _pages;
   StreamSubscription<DocumentSnapshot>? _shopSubscription;
 
+  String? documentsXeroxServiceId;
+  bool _isServiceConfigured = false;
+
   @override
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: _selectedIndex);
     _listenToShopData();
-    initializeTabCloseListener(widget.user.uid);
+    _checkDocumentsXeroxConfig();
+    initializeTabCloseListener(widget.user.uid, dotenv.env['BACKEND_URL'] ?? "https://zikrint.duckdns.org");
     
     // 🎧 Initialize Global Notification Captain
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -168,11 +208,15 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _initializePages() {
     _pages = [
-      HomeTab(user: widget.user),
+      HomeTab(
+        user: widget.user,
+        onServicesTabRequested: () => _onItemTapped(5),
+      ),
       PendingTab(user: widget.user),
       HistoryTab(user: widget.user),
       InsightsTab(user: widget.user),
       WalletTab(user: widget.user),
+      ZikrinterServicesPage(shopId: widget.user.uid),
       ProfileTab(user: widget.user, shopData: shopData),
     ];
   }
@@ -191,8 +235,9 @@ class _MyHomePageState extends State<MyHomePage> {
         .snapshots()
         .listen((doc) {
       if (mounted) {
+        shopData = doc.data();
+        _updateConfigurationStatus();
         setState(() {
-          shopData = doc.data();
           _initializePages();
           _isLoading = false;
         });
@@ -206,6 +251,51 @@ class _MyHomePageState extends State<MyHomePage> {
         });
       }
     });
+  }
+
+  Future<void> _checkDocumentsXeroxConfig() async {
+    try {
+      final servicesSnapshot = await FirebaseFirestore.instanceFor(app: Firebase.app('zikrinter'))
+          .collection('zikrinter')
+          .get();
+          
+      String? targetId;
+      for (final doc in servicesSnapshot.docs) {
+        final name = (doc.data()['name'] as String? ?? '').toLowerCase().trim();
+        if (name == 'documents (xerox)' || name == 'documents' || name == 'xerox') {
+          targetId = doc.id;
+          break;
+        }
+      }
+      
+      if (targetId != null) {
+        documentsXeroxServiceId = targetId;
+        _updateConfigurationStatus();
+      }
+    } catch (e) {
+      debugPrint('Error finding Documents (Xerox) service ID: $e');
+    }
+  }
+
+  void _updateConfigurationStatus() {
+    if (shopData == null || documentsXeroxServiceId == null) return;
+    final zikrinterServices = shopData!['zikrinterServices'] as Map<String, dynamic>? ?? {};
+    final config = zikrinterServices[documentsXeroxServiceId!] as Map<String, dynamic>?;
+    
+    bool configured = false;
+    if (config != null && config['isEnabled'] == true) {
+      final colorPrice = (config['color_singleSidePrice'] ?? config['singleSidePrice'] ?? 0.0) as num;
+      final bwPrice = (config['bw_singleSidePrice'] ?? 0.0) as num;
+      if (colorPrice > 0.0 || bwPrice > 0.0) {
+        configured = true;
+      }
+    }
+    
+    if (mounted && _isServiceConfigured != configured) {
+      setState(() {
+        _isServiceConfigured = configured;
+      });
+    }
   }
 
   void _onPageChanged(int index) {
@@ -226,6 +316,10 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (!_isServiceConfigured) {
+      return ZikrinterServicesPage(shopId: widget.user.uid);
     }
 
     final double width = MediaQuery.of(context).size.width;
@@ -335,6 +429,7 @@ class _MyHomePageState extends State<MyHomePage> {
                       NavigationRailDestination(icon: Icon(Icons.history_rounded), label: Text("HISTORY")),
                       NavigationRailDestination(icon: Icon(Icons.insights_rounded), label: Text("INSIGHTS")),
                       NavigationRailDestination(icon: Icon(Icons.account_balance_wallet_rounded), label: Text("WALLET")),
+                      NavigationRailDestination(icon: Icon(Icons.print_rounded), label: Text("SERVICES")),
                       NavigationRailDestination(icon: Icon(Icons.person_rounded), label: Text("PROFILE")),
                     ],
                     trailing: Padding(
@@ -492,6 +587,7 @@ class _MyHomePageState extends State<MyHomePage> {
             BottomNavigationBarItem(icon: Icon(Icons.history_rounded), label: "HISTORY"),
             BottomNavigationBarItem(icon: Icon(Icons.insights_rounded), label: "INSIGHTS"),
             BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet_rounded), label: "WALLET"),
+            BottomNavigationBarItem(icon: Icon(Icons.print_rounded), label: "SERVICES"),
             BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: "PROFILE"),
           ],
         ),

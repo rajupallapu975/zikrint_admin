@@ -66,7 +66,7 @@ class _OrderDetailsPageState extends State<OrderDetailsPage> {
             ),
             const SizedBox(height: 16),
             Text(
-              widget.order.fileName,
+              widget.order.serviceName ?? widget.order.fileName,
               style: GoogleFonts.inter(fontSize: 28, fontWeight: FontWeight.w900, color: AppColors.textPrimary, letterSpacing: -1),
             ),
             const SizedBox(height: 8),
@@ -101,7 +101,7 @@ class _OrderDetailsPageState extends State<OrderDetailsPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(name, style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.textPrimary), overflow: TextOverflow.ellipsis),
-                            Text("A4 • ${name.split('.').last.toUpperCase()} • ${widget.order.getPageCount(index)} PAGES", style: GoogleFonts.manrope(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+                            Text("${(widget.order.paperSize ?? 'A4').toUpperCase()} • ${name.split('.').last.toUpperCase()} • ${widget.order.getPageCount(index)} PAGES", style: GoogleFonts.manrope(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
                           ],
                         ),
                       ),
@@ -141,11 +141,46 @@ class _OrderDetailsPageState extends State<OrderDetailsPage> {
             }),
 
             const SizedBox(height: 32),
+            _buildConfigRow(Icons.description_outlined, "Paper Size", (widget.order.paperSize ?? "A4").toUpperCase()),
             _buildConfigRow(Icons.palette_outlined, "Print Type", widget.order.colorPages > 0 ? "Color" : "Black & White"),
             _buildConfigRow(Icons.landscape_rounded, "Orientation", widget.order.orientation.toUpperCase()),
             _buildConfigRow(Icons.filter_none_rounded, "Copies", "${widget.order.copies} Set(s)"),
             _buildConfigRow(Icons.chrome_reader_mode_outlined, "Sides", widget.order.isDuplex ? "Double-Sided" : "Single-Sided"),
-            _buildConfigRow(Icons.payments_outlined, "Service Fee", "₹${widget.order.amount.toStringAsFixed(2)}", isLast: true),
+            if (widget.order.generateCoverPage) ...[
+              _buildConfigRow(Icons.auto_awesome_motion_outlined, "Cover Page", "Enabled"),
+              _buildConfigRow(Icons.monetization_on_outlined, "Cover Page Charge", "₹${widget.order.coverPageCharge.toStringAsFixed(0)}"),
+              _buildConfigRow(Icons.content_copy_outlined, "Customer Pages", "${widget.order.totalPages}"),
+              _buildConfigRow(Icons.pages_outlined, "Printable Pages", "${widget.order.totalPages + 1}"),
+            ],
+            if (widget.order.customParameters.isNotEmpty)
+              ...widget.order.customParameters.entries.map((entry) {
+                final keyDisplay = entry.key
+                    .replaceAll('_', ' ')
+                    .split(' ')
+                    .map((str) => str.isNotEmpty ? '${str[0].toUpperCase()}${str.substring(1)}' : '')
+                    .join(' ');
+                return _buildConfigRow(Icons.settings_suggest_outlined, keyDisplay, entry.value.toString());
+              }).toList(),
+            // Show shop's price only (printing cost + cover page charge). No platform fee shown.
+            _buildConfigRow(
+              Icons.payments_outlined,
+              "Printing Cost",
+              "₹${(widget.order.printingCost > 0 ? widget.order.printingCost : widget.order.amount).toStringAsFixed(2)}",
+            ),
+            if (widget.order.generateCoverPage)
+              _buildConfigRow(
+                Icons.receipt_long_outlined,
+                "Total to Collect",
+                "₹${((widget.order.printingCost > 0 ? widget.order.printingCost : widget.order.amount) + widget.order.coverPageCharge).toStringAsFixed(2)}",
+                isLast: true,
+              )
+            else
+              _buildConfigRow(
+                Icons.receipt_long_outlined,
+                "Total to Collect",
+                "₹${(widget.order.printingCost > 0 ? widget.order.printingCost : widget.order.amount).toStringAsFixed(2)}",
+                isLast: true,
+              ),
 
             const SizedBox(height: 40),
             Text("CUSTOMER INFO", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w900, color: AppColors.textTertiary, letterSpacing: 1.5)),

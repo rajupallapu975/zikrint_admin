@@ -1,4 +1,5 @@
 import 'package:admin_zikrint/services/auth_service.dart';
+import '../zikrinter_services_page.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import '../../services/notification_service.dart';
@@ -287,6 +288,19 @@ class _ProfileTabState extends State<ProfileTab> {
             _buildProfileItem(Icons.logout, 'Closes', widget.shopData?['closingTime']?.toString() ?? 'N/A'),
             _buildProfileItem(Icons.pin_drop, 'Pincode', widget.shopData?['pincode']?.toString() ?? 'N/A'),
             _buildProfileItem(Icons.location_on, 'Location', widget.shopData?['address']?.toString() ?? 'N/A'),
+            _buildProfileItem(
+              Icons.print_rounded,
+              'Zikrinter Services',
+              'View active service catalogs',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ZikrinterServicesPage(shopId: widget.user.uid),
+                  ),
+                );
+              },
+            ),
             
             const SizedBox(height: 32),
             _buildSupportCenter(),
@@ -474,42 +488,53 @@ class _ProfileTabState extends State<ProfileTab> {
     );
   }
 
-  Widget _buildProfileItem(IconData icon, String label, String value) {
+  Widget _buildProfileItem(IconData icon, String label, String value, {VoidCallback? onTap}) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
         boxShadow: AppColors.softShadow,
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppColors.primaryBlue.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: AppColors.primaryBlue, size: 20),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
               children: [
-                Text(label, style: const TextStyle(color: AppColors.textTertiary, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryBlue.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: AppColors.primaryBlue, size: 20),
                 ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label, style: const TextStyle(color: AppColors.textTertiary, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                      const SizedBox(height: 2),
+                      Text(
+                        value,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                if (onTap != null)
+                  const Icon(Icons.arrow_forward_ios_rounded, size: 12, color: AppColors.textTertiary),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
