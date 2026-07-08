@@ -35,52 +35,13 @@ class _HomeTabState extends State<HomeTab> {
   String _searchQuery = "";
   final Set<String> _completedBatches = {};
   final Set<String> _expandedBatches = {};
+  bool _isSubmitting = false; // 🛡️ Guard against double-tap on "PRINT DONE"
 
   @override
   void initState() {
     super.initState();
-    _cleanupExpiredOrders();
   }
 
-  Future<void> _cleanupExpiredOrders() async {
-    try {
-      final now = DateTime.now();
-      final expirationDate = now.subtract(const Duration(hours: 24));
-      
-      final shopRef = _firestore.collection('shops').doc(widget.user.uid);
-      
-      final snapshot = await shopRef.collection('orders')
-          .where('timestamp', isLessThan: Timestamp.fromDate(expirationDate))
-          .get();
-
-      final victims = snapshot.docs.where((doc) {
-        final status = doc.get('status');
-        return status != 'completed';
-      }).toList();
-
-      if (victims.isNotEmpty) {
-        final batch = _firestore.batch();
-        final psfcApp = Firebase.app('psfc');
-        final psfcFirestore = FirebaseFirestore.instanceFor(app: psfcApp);
-        final psfcBatch = psfcFirestore.batch();
-
-        for (var doc in victims) {
-          batch.delete(doc.reference);
-          for (var col in ['xerox_shop_orders', 'xerox_orders', 'orders']) {
-             psfcBatch.delete(psfcFirestore.collection(col).doc(doc.id));
-          }
-        }
-
-        await Future.wait([
-          batch.commit(),
-          psfcBatch.commit().catchError((_) => null),
-        ]);
-        debugPrint("🗑️ Cascade cleaned up ${victims.length} expired orders.");
-      }
-    } catch (e) {
-      debugPrint("Cleanup Error: $e");
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -463,6 +424,10 @@ class _HomeTabState extends State<HomeTab> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: () async {
+              // 🛡️ Prevent double-tap from firing two concurrent API calls
+              if (_isSubmitting) return;
+              setState(() => _isSubmitting = true);
+
               final scaffoldMessenger = ScaffoldMessenger.of(context);
               final navigator = Navigator.of(context);
               final String firstOrderId = items.isNotEmpty ? items.first.id : "";
@@ -471,6 +436,7 @@ class _HomeTabState extends State<HomeTab> {
 
               if (firstOrderId.isEmpty) {
                 debugPrint("⚠️ [ADMIN] Error: No Order ID found for batch $mainId");
+                setState(() => _isSubmitting = false);
                 navigator.pop();
                 return;
               }
@@ -487,16 +453,18 @@ class _HomeTabState extends State<HomeTab> {
               debugPrint("🔌 [ADMIN] Backend Response: ${errorMsg == null ? 'SUCCESS' : 'FAILURE: $errorMsg'}");
               
               if (mounted) {
-                Navigator.pop(context); // Close loading
+                navigator.pop(); // Close loading spinner (top of stack)
                 navigator.pop(); // Close confirm dialog
               }
 
+              if (mounted) setState(() => _isSubmitting = false);
+
               if (errorMsg == null) {
                 debugPrint("✨ [ADMIN] UI Updating: Batch $mainId marked as completed locally.");
-                setState(() {
-                  _completedBatches.add(mainId);
-                });
+                if (mounted) setState(() => _completedBatches.add(mainId));
                 if (mounted) {
+                  // 🛡️ Clear any queued snackbars before showing to prevent stacking
+                  scaffoldMessenger.clearSnackBars();
                   scaffoldMessenger.showSnackBar(const SnackBar(
                     content: Text("✅ Print Sync Success! Customer notified."),
                     backgroundColor: Colors.green,
@@ -505,6 +473,7 @@ class _HomeTabState extends State<HomeTab> {
               } else {
                 debugPrint("❌ [ADMIN] Sync failed for $firstOrderId: $errorMsg");
                 if (mounted) {
+                  scaffoldMessenger.clearSnackBars();
                   scaffoldMessenger.showSnackBar(SnackBar(
                     content: Text("❌ Sync Failed: $errorMsg"),
                     backgroundColor: AppColors.error,
