@@ -37,9 +37,35 @@ class _HomeTabState extends State<HomeTab> {
   final Set<String> _expandedBatches = {};
   bool _isSubmitting = false; // 🛡️ Guard against double-tap on "PRINT DONE"
 
+  Map<String, String> _serviceImages = {};
+
+  Future<void> _loadServiceImages() async {
+    try {
+      final snapshot = await FirebaseFirestore.instanceFor(app: Firebase.app('zikrinter'))
+          .collection('zikrinter')
+          .get();
+      final map = <String, String>{};
+      for (final doc in snapshot.docs) {
+        final name = (doc.data()['name'] as String? ?? '').toLowerCase().trim();
+        final img = doc.data()['imageUrl'] as String? ?? '';
+        if (img.isNotEmpty) {
+          map[name] = img;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _serviceImages = map;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading service images: $e");
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _loadServiceImages();
   }
 
 
@@ -293,33 +319,93 @@ class _HomeTabState extends State<HomeTab> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             collapsedShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            leading: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: isExpanded 
-                  ? AppColors.primaryBlue 
-                  : (isCompleted ? Colors.green : AppColors.primaryBlue.withValues(alpha: 0.1)),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                mainId, 
-                style: GoogleFonts.inter(
-                  fontWeight: FontWeight.w900, 
-                  fontSize: 16, 
-                  color: (isExpanded || isCompleted) ? Colors.white : AppColors.primaryBlue
-                )
-              ),
+            leading: Builder(
+              builder: (context) {
+                final String lookupKey = (items[0].serviceName ?? '').toLowerCase().trim();
+                final String? imageUrl = _serviceImages[lookupKey];
+                
+                return Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: isExpanded 
+                      ? AppColors.primaryBlue.withValues(alpha: 0.1) 
+                      : (isCompleted ? Colors.green.withValues(alpha: 0.1) : AppColors.primaryBlue.withValues(alpha: 0.05)),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isExpanded 
+                        ? AppColors.primaryBlue.withValues(alpha: 0.2) 
+                        : (isCompleted ? Colors.green.withValues(alpha: 0.2) : AppColors.border),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: imageUrl != null && imageUrl.isNotEmpty
+                        ? Image.network(
+                            imageUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, _, __) => Icon(
+                              Icons.print_rounded,
+                              color: isExpanded ? AppColors.primaryBlue : AppColors.textSecondary,
+                            ),
+                          )
+                        : Icon(
+                            Icons.print_rounded,
+                            color: isExpanded ? AppColors.primaryBlue : AppColors.textSecondary,
+                          ),
+                  ),
+                );
+              }
             ),
             title: Row(
               children: [
-                Text(
-                  customerName.toUpperCase(), 
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w900, 
-                    fontSize: 15, 
-                    color: isExpanded ? AppColors.primaryBlue : AppColors.textPrimary, 
-                    letterSpacing: 0.5
-                  )
+                // Pickup code badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isExpanded 
+                      ? AppColors.primaryBlue 
+                      : (isCompleted ? Colors.green : AppColors.primaryBlue.withValues(alpha: 0.1)),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    mainId, 
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w900, 
+                      fontSize: 14, 
+                      color: (isExpanded || isCompleted) ? Colors.white : AppColors.primaryBlue
+                    )
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        customerName.toUpperCase(), 
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w900, 
+                          fontSize: 15, 
+                          color: isExpanded ? AppColors.primaryBlue : AppColors.textPrimary, 
+                          letterSpacing: 0.5
+                        )
+                      ),
+                      if (items[0].serviceName != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          items[0].serviceName!,
+                          style: GoogleFonts.manrope(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
                 if (items[0].customId != null) ...[
                   const SizedBox(width: 12),
@@ -343,7 +429,7 @@ class _HomeTabState extends State<HomeTab> {
             ),
             subtitle: Row(
               children: [
-                Text("$totalFiles File${totalFiles > 1 ? 's' : ''}", style: GoogleFonts.manrope(fontSize: 11, fontWeight: FontWeight.bold, color: isExpanded ? AppColors.primaryBlue.withValues(alpha: 0.7) : AppColors.textTertiary)),
+                Text("$totalFiles File${totalFiles > 1 ? 's' : ''}", style: GoogleFonts.manrope(fontSize: 11, fontWeight: FontWeight.bold, color: isExpanded ? AppColors.primaryBlue.withValues(alpha: 0.7) : AppColors.textSecondary)),
                 const SizedBox(width: 8),
                 Text("• ₹${totalAmount.toInt()}", style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w900, color: isExpanded ? AppColors.primaryBlue : AppColors.primaryBlue)),
               ],
@@ -634,15 +720,20 @@ class _HomeTabState extends State<HomeTab> {
 
   Widget _requirementBadge(String label, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3)),
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.4), width: 2),
       ),
       child: Text(
         label,
-        style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w900, color: color, letterSpacing: 0.5),
+        style: GoogleFonts.inter(
+          fontSize: 12, 
+          fontWeight: FontWeight.w900, 
+          color: color, 
+          letterSpacing: 0.8
+        ),
       ),
     );
   }
