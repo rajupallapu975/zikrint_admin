@@ -28,6 +28,9 @@ class OrderModel {
   final double coverPageCharge;
   final double printingCost;
   final double platformCommission;
+  final String? bindingType;
+  final double bindingCost;
+  final String? serviceType;
   
   OrderModel({
     required this.id,
@@ -58,6 +61,9 @@ class OrderModel {
     this.coverPageCharge = 0.0,
     this.printingCost = 0.0,
     this.platformCommission = 0.0,
+    this.bindingType,
+    this.bindingCost = 0.0,
+    this.serviceType,
   });
 
   final String? customId;
@@ -166,6 +172,9 @@ class OrderModel {
       coverPageCharge: data['coverPageCharge'] != null ? (data['coverPageCharge'] as num).toDouble() : 0.0,
       printingCost: data['printingCost'] != null ? (data['printingCost'] as num).toDouble() : (data['shopkeeperEarnings'] != null ? (data['shopkeeperEarnings'] as num).toDouble() : (data['amount'] ?? 0.0).toDouble()),
       platformCommission: data['platformCommission'] != null ? (data['platformCommission'] as num).toDouble() : (data['platformEarnings'] != null ? (data['platformEarnings'] as num).toDouble() : 0.0),
+      bindingType: data['bindingType'] ?? (printSettings is Map ? printSettings['bindingType'] : null),
+      bindingCost: data['bindingCost'] != null ? (data['bindingCost'] as num).toDouble() : (printSettings is Map && printSettings['bindingCost'] != null ? (printSettings['bindingCost'] as num).toDouble() : 0.0),
+      serviceType: data['serviceType'] ?? (printSettings is Map ? printSettings['serviceType'] : null),
     );
   }
 
@@ -203,5 +212,8 @@ class OrderModel {
     'coverPageCharge': coverPageCharge,
     'printingCost': printingCost,
     'platformCommission': platformCommission,
+    'bindingType': bindingType,
+    'bindingCost': bindingCost,
+    'serviceType': serviceType,
   };
 }

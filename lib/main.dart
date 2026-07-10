@@ -174,6 +174,7 @@ class _MyHomePageState extends State<MyHomePage> {
   late PageController _pageController;
   List<Widget>? _pages;
   StreamSubscription<DocumentSnapshot>? _shopSubscription;
+  Timer? _heartbeatTimer;
 
   String? documentsXeroxServiceId;
   bool _isServiceConfigured = false;
@@ -181,8 +182,10 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
+
     _pageController = PageController(initialPage: _selectedIndex);
     _listenToShopData();
+    _startHeartbeat();
     _checkDocumentsXeroxConfig();
     initializeTabCloseListener(widget.user.uid, dotenv.env['BACKEND_URL'] ?? "https://zikrint.duckdns.org");
     
@@ -207,12 +210,15 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _initializePages() {
+    final bool isOnline = shopData?['isOpen'] == true;
     _pages = [
-      HomeTab(
-        user: widget.user,
-        onServicesTabRequested: () => _onItemTapped(5),
-      ),
-      PendingTab(user: widget.user),
+      !isOnline
+          ? _buildOfflinePlaceholder()
+          : HomeTab(
+              user: widget.user,
+              onServicesTabRequested: () => _onItemTapped(5),
+            ),
+      !isOnline ? _buildOfflinePlaceholder() : PendingTab(user: widget.user),
       HistoryTab(user: widget.user),
       InsightsTab(user: widget.user),
       WalletTab(user: widget.user),
@@ -221,12 +227,103 @@ class _MyHomePageState extends State<MyHomePage> {
     ];
   }
 
+  Widget _buildOfflinePlaceholder() {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: Center(
+        child: Container(
+          width: 380,
+          margin: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(32),
+            boxShadow: AppColors.mediumShadow,
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0.9, end: 1.1),
+                duration: const Duration(seconds: 1),
+                curve: Curves.easeInOutSine,
+                builder: (context, scale, child) {
+                  return Transform.scale(
+                    scale: scale,
+                    child: Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.cloud_off_rounded, color: AppColors.error, size: 48),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 28),
+              Text(
+                "You are Currently Offline",
+                style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 20, color: AppColors.textPrimary),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                "Turn on Online Mode to receive new print orders and make your shop visible to users.",
+                textAlign: TextAlign.center,
+                style: GoogleFonts.manrope(color: AppColors.textSecondary, fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 36),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).update({'isOpen': true});
+                },
+                icon: const Icon(Icons.power_settings_new_rounded),
+                label: const Text("GO ONLINE NOW", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryBlue,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 56),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+
+
   @override
   void dispose() {
+
+    _heartbeatTimer?.cancel();
     _shopSubscription?.cancel();
     _pageController.dispose();
     super.dispose();
   }
+
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 8), (timer) async {
+      try {
+        await FirebaseFirestore.instance
+            .collection('shops')
+            .doc(widget.user.uid)
+            .update({
+          'lastActive': FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        debugPrint("Heartbeat update failed: $e");
+      }
+    });
+  }
+
+
 
   void _listenToShopData() {
     _shopSubscription = FirebaseFirestore.instance
@@ -305,11 +402,15 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _onItemTapped(int index) {
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 400),
-      curve: Curves.easeOutQuart,
-    );
+    if ((index - _selectedIndex).abs() > 1) {
+      _pageController.jumpToPage(index);
+    } else {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutQuart,
+      );
+    }
   }
 
   @override
@@ -326,74 +427,7 @@ class _MyHomePageState extends State<MyHomePage> {
     final bool isWide = width > 900;
     final bool isOnline = shopData?['isOpen'] == true;
 
-    if (!isOnline) {
-      return Scaffold(
-        backgroundColor: AppColors.background,
-        body: Center(
-          child: Container(
-            width: 380,
-            margin: const EdgeInsets.symmetric(horizontal: 24),
-            padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(32),
-              boxShadow: AppColors.mediumShadow,
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TweenAnimationBuilder<double>(
-                  tween: Tween<double>(begin: 0.9, end: 1.1),
-                  duration: const Duration(seconds: 1),
-                  curve: Curves.easeInOutSine,
-                  builder: (context, scale, child) {
-                    return Transform.scale(
-                      scale: scale,
-                      child: Container(
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          color: AppColors.error.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.cloud_off_rounded, color: AppColors.error, size: 48),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 28),
-                Text(
-                  "You are Currently Offline",
-                  style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 20, color: AppColors.textPrimary),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  "Turn on Online Mode to receive new print orders and make your shop visible to users.",
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.manrope(color: AppColors.textSecondary, fontSize: 14, fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 36),
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).update({'isOpen': true});
-                  },
-                  icon: const Icon(Icons.power_settings_new_rounded),
-                  label: const Text("GO ONLINE NOW", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryBlue,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 56),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    elevation: 0,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
+
 
     return PopScope(
       canPop: false,

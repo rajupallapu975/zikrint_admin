@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import '../../models/app_user.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:intl/intl.dart';
+
 import '../../utils/app_colors.dart';
 
 class WalletTab extends StatefulWidget {
@@ -18,448 +18,309 @@ class _WalletTabState extends State<WalletTab> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   void _showWithdrawalForm(double currentBalance, Map<String, dynamic> shopData) {
-    bool isWide = MediaQuery.of(context).size.width > 900;
-    
     if (currentBalance < 10) {
-       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Min withdrawal is ₹10! 🪙"), backgroundColor: Colors.orange));
-       return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Min withdrawal is ₹10! 🪙"),
+          backgroundColor: Colors.orange));
+      return;
     }
 
-    // Use floor to ensure default suggested amount never exceeds balance
-    final String defaultAmount = currentBalance.floor().toString();
-    
-    final TextEditingController bankNameController = TextEditingController();
-    final TextEditingController holderNameController = TextEditingController(); 
-    final TextEditingController ifscController = TextEditingController();
-    final TextEditingController accountController = TextEditingController();
-    final TextEditingController mobileController = TextEditingController(); 
-    final TextEditingController amountController = TextEditingController(text: defaultAmount);
-    
-    // 🔥 Free Access: Always allow manual entry/edit, pre-fill with saved details
-    bankNameController.text = shopData['bankName'] ?? '';
-    holderNameController.text = shopData['holderName'] ?? '';
-    ifscController.text = shopData['ifscCode'] ?? '';
-    accountController.text = shopData['accountNumber'] ?? '';
-    mobileController.text = shopData['bankMobile'] ?? '';
+    final amountCtrl = TextEditingController(text: currentBalance.floor().toString());
+    final upiNameCtrl = TextEditingController(text: shopData['upiName'] ?? '');
+    final upiIdCtrl   = TextEditingController(text: shopData['upiId']   ?? '');
+    final mobileCtrl  = TextEditingController(text: shopData['upiMobile'] ?? '');
+    final shopRef     = _firestore.collection('shops').doc(widget.user.uid);
 
-    final DocumentReference shopRef = _firestore.collection('shops').doc(widget.user.uid);
-    
-    // 🔥 Improved Validation States
-    String? amountError;
-    String? ifscError;
-    String? accountError;
-    String? mobileError;
-    
-    bool _isExpanded = false; 
-    bool _isNewBank = false;  
+    String? selectedApp = shopData['upiApp'] ?? 'PhonePe';
 
-    if (isWide) {
-      showDialog(
-        context: context,
-        builder: (context) => _buildWithdrawalModal(currentBalance, shopData, bankNameController, holderNameController, ifscController, accountController, mobileController, amountController, shopRef, amountError, ifscError, accountError, mobileError, _isExpanded, _isNewBank),
-      );
-    } else {
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => _buildWithdrawalModal(currentBalance, shopData, bankNameController, holderNameController, ifscController, accountController, mobileController, amountController, shopRef, amountError, ifscError, accountError, mobileError, _isExpanded, _isNewBank),
-      );
-    }
-  }
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) {
+          bool isLoading = false;
 
-  Widget _buildWithdrawalModal(
-    double currentBalance, Map<String, dynamic> shopData, 
-    TextEditingController bankNameController, TextEditingController holderNameController,
-    TextEditingController ifscController, TextEditingController accountController,
-    TextEditingController mobileController, TextEditingController amountController,
-    DocumentReference shopRef, String? amountError, String? ifscError, String? accountError, String? mobileError,
-    bool initialExpanded, bool initialNewBank
-  ) {
-    bool isWide = MediaQuery.of(context).size.width > 900;
-    bool _isExpanded = initialExpanded;
-    bool _isNewBank = initialNewBank;
-    bool _isLoading = false; 
-    return StatefulBuilder(
-      builder: (context, setModalState) {
-        bool isFormValid() {
-          if (double.tryParse(amountController.text) == null || (double.tryParse(amountController.text) ?? 0) < 10 || (double.tryParse(amountController.text) ?? 0) > currentBalance) return false;
-          if (amountError != null) return false;
-          if (!_isExpanded) return false;
-          
-          if (bankNameController.text.trim().isEmpty) return false;
-          if (holderNameController.text.trim().isEmpty) return false;
-          if (ifscController.text.trim().isEmpty) return false;
-          if (accountController.text.trim().isEmpty) return false;
-          if (mobileController.text.trim().length < 10) return false;
-          
-          return true;
-        }
+          bool isValid() =>
+              (double.tryParse(amountCtrl.text) ?? 0) >= 10 &&
+              (double.tryParse(amountCtrl.text) ?? 0) <= currentBalance &&
+              upiNameCtrl.text.trim().isNotEmpty &&
+              upiIdCtrl.text.trim().contains('@') &&
+              mobileCtrl.text.trim().length == 10;
 
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            return Center(
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  constraints: BoxConstraints(maxWidth: isWide ? 500 : double.infinity),
-                  margin: isWide ? const EdgeInsets.all(32) : EdgeInsets.zero,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(isWide ? 32 : 0).copyWith(
-                      topLeft: const Radius.circular(32),
-                      topRight: const Radius.circular(32),
+          Future<void> submit() async {
+            setModal(() => isLoading = true);
+            final amount = double.parse(amountCtrl.text);
+            try {
+              await _firestore.runTransaction((tx) async {
+                final snap = await tx.get(shopRef);
+                final live = ((snap.data() as Map)['walletBalance'] ?? 0.0).toDouble();
+                if (live < amount) throw 'Insufficient balance';
+
+                // Save UPI details for next time (do NOT deduct wallet yet)
+                tx.update(shopRef, {
+                  'upiName':   upiNameCtrl.text.trim(),
+                  'upiId':     upiIdCtrl.text.trim(),
+                  'upiMobile': mobileCtrl.text.trim(),
+                  'upiApp':    selectedApp,
+                });
+
+                // Create withdrawal request — Zikrinter owner must APPROVE to deduct
+                final reqRef = _firestore.collection('withdrawal_requests').doc();
+                tx.set(reqRef, {
+                  'requestId':  reqRef.id,
+                  'shopId':     widget.user.uid,
+                  'shopName':   shopData['shopName'] ?? 'Shop',
+                  'upiApp':     selectedApp,
+                  'upiName':    upiNameCtrl.text.trim(),
+                  'upiId':      upiIdCtrl.text.trim(),
+                  'upiMobile':  mobileCtrl.text.trim(),
+                  'amount':     amount,
+                  'status':     'pending',
+                  'requestedAt': FieldValue.serverTimestamp(),
+                });
+              });
+
+              if (ctx.mounted) {
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text("✅ Withdrawal request raised!"),
+                    backgroundColor: AppColors.success));
+              }
+            } catch (e) {
+              setModal(() => isLoading = false);
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text("Error: $e"),
+                    backgroundColor: AppColors.error));
+              }
+            }
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              ),
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Handle bar
+                    Center(
+                      child: Container(
+                        width: 40, height: 4,
+                        decoration: BoxDecoration(
+                            color: Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(2)),
+                      ),
                     ),
-                    boxShadow: isWide ? [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 40, offset: const Offset(0, 10))] : null,
-                  ),
-                padding: EdgeInsets.only(
-                  left: 28, right: 28, top: 28,
-                  bottom: MediaQuery.of(context).viewInsets.bottom + 28,
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (!isWide) Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)))),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text("Request Payout", style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.textPrimary)),
-                          if (isWide) IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded, color: AppColors.textTertiary)),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text("Min: ₹10", style: GoogleFonts.manrope(color: AppColors.primaryBlue, fontWeight: FontWeight.w800, fontSize: 13)),
-                          Text("Available: ₹${currentBalance.toStringAsFixed(2)}", style: GoogleFonts.manrope(color: AppColors.textSecondary, fontWeight: FontWeight.bold, fontSize: 13)),
-                        ],
-                      ),
-                      const SizedBox(height: 32),
-                      
-                      _buildTextField(amountController, "Withdraw Amount (₹)", Icons.payments_rounded, isNumber: true, errorText: amountError, onChanged: (v) {
-                        final amt = double.tryParse(v) ?? 0;
-                        setModalState(() => amountError = (amt >= 10 && amt <= currentBalance) ? null : "Must be ₹10 - ₹${currentBalance.toStringAsFixed(0)}");
-                      }),
+                    const SizedBox(height: 20),
 
-                      const SizedBox(height: 24),
-
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(color: Colors.orange.withOpacity(0.05), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.orange.withOpacity(0.2))),
-                        child: const Row(
+                    // Title
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                              color: const Color(0xFF5F259F).withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(12)),
+                          child: const Icon(Icons.account_balance_wallet_rounded,
+                              color: Color(0xFF5F259F), size: 22),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 18),
-                            SizedBox(width: 12),
-                            Expanded(child: Text("Ensure details are 100% correct to avoid processing delays.", style: TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.bold))),
+                            Text("Withdraw via UPI",
+                                style: GoogleFonts.inter(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900,
+                                    color: AppColors.textPrimary)),
+                            Text("Available: ₹${currentBalance.toStringAsFixed(2)}",
+                                style: GoogleFonts.manrope(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                    fontWeight: FontWeight.w700)),
                           ],
                         ),
-                      ),
-
-                      const SizedBox(height: 32),
-
-                      // 🏦 Selection Bars
-                      if (shopData['bankName'] != null) ...[
-                        _buildSelectionBar(
-                          title: "USE REGISTERED ACCOUNT",
-                          subtitle: "${shopData['bankName']} (****${shopData['accountNumber']?.toString().substring((shopData['accountNumber']?.toString().length ?? 4) - 4)})",
-                          extra: shopData['holderName'],
-                          icon: Icons.account_balance_rounded,
-                          isSelected: _isExpanded && !_isNewBank,
-                          onTap: () => setModalState(() {
-                             if (_isExpanded && !_isNewBank) {
-                               _isExpanded = false;
-                             } else {
-                               _isExpanded = true;
-                               _isNewBank = false;
-                               bankNameController.text = shopData['bankName'] ?? '';
-                               holderNameController.text = shopData['holderName'] ?? '';
-                               ifscController.text = shopData['ifscCode'] ?? '';
-                               accountController.text = shopData['accountNumber'] ?? '';
-                               mobileController.text = shopData['bankMobile'] ?? '';
-                             }
-                          }),
-                        ),
-                        const SizedBox(height: 12),
                       ],
+                    ),
+                    const SizedBox(height: 24),
 
-                      _buildSelectionBar(
-                        title: "USE NEW BANK ACCOUNT",
-                        icon: Icons.add_circle_outline_rounded,
-                        isSelected: _isExpanded && _isNewBank,
-                        onTap: () => setModalState(() {
-                          if (_isExpanded && _isNewBank) {
-                            _isExpanded = false;
-                          } else {
-                            _isExpanded = true;
-                            _isNewBank = true;
-                            bankNameController.clear();
-                            holderNameController.clear();
-                            ifscController.clear();
-                            accountController.clear();
-                            mobileController.clear();
-                          }
-                        }),
-                      ),
+                    // Amount field
+                    _buildUpiField(amountCtrl, "Amount (₹)", Icons.payments_rounded,
+                        isNumber: true, hint: "Min ₹10"),
+                    const SizedBox(height: 16),
 
-                      if (_isExpanded) ...[
-                        const SizedBox(height: 32),
-                        Row(
+                    // UPI App selector
+                    Text("UPI App",
+                        style: GoogleFonts.manrope(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.textTertiary,
+                            letterSpacing: 1)),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: ['PhonePe', 'Google Pay', 'Paytm', 'Other']
+                          .map((app) => Expanded(
+                                child: GestureDetector(
+                                  onTap: () => setModal(() => selectedApp = app),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    margin: const EdgeInsets.only(right: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 10),
+                                    decoration: BoxDecoration(
+                                      color: selectedApp == app
+                                          ? const Color(0xFF5F259F)
+                                          : AppColors.background,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: selectedApp == app
+                                            ? const Color(0xFF5F259F)
+                                            : AppColors.border,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      app == 'Google Pay' ? 'GPay' : app,
+                                      textAlign: TextAlign.center,
+                                      style: GoogleFonts.inter(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                          color: selectedApp == app
+                                              ? Colors.white
+                                              : AppColors.textSecondary),
+                                    ),
+                                  ),
+                                ),
+                              ))
+                          .toList(),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // UPI registered name
+                    _buildUpiField(upiNameCtrl, "Name on UPI / Account Holder",
+                        Icons.person_rounded,
+                        hint: "e.g. Raju Pallapu"),
+                    const SizedBox(height: 12),
+
+                    // UPI ID
+                    _buildUpiField(upiIdCtrl, "UPI ID",
+                        Icons.alternate_email_rounded,
+                        hint: "e.g. raju@ybl"),
+                    const SizedBox(height: 12),
+
+                    // Mobile number
+                    _buildUpiField(mobileCtrl, "Mobile Number",
+                        Icons.phone_android_rounded,
+                        isNumber: true, hint: "10-digit number"),
+                    const SizedBox(height: 24),
+
+                    // Summary chip
+                    if ((double.tryParse(amountCtrl.text) ?? 0) >= 10)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 18, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                              color: Colors.green.withValues(alpha: 0.2)),
+                        ),
+                        child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(_isNewBank ? "ENTER NEW BANK" : "REGISTERED DETAILS", style: GoogleFonts.manrope(fontSize: 10, fontWeight: FontWeight.w900, color: AppColors.textTertiary, letterSpacing: 1.5)),
-                            if (!_isNewBank) Icon(Icons.lock_outline_rounded, size: 14, color: AppColors.textTertiary),
+                            Text("You will receive",
+                                style: GoogleFonts.manrope(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                    fontWeight: FontWeight.w700)),
+                            Text("₹${amountCtrl.text}",
+                                style: GoogleFonts.inter(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.green)),
                           ],
                         ),
-                        const SizedBox(height: 16),
-                        _buildTextField(bankNameController, "Bank Name (e.g. HDFC)", Icons.account_balance_rounded, readOnly: !_isNewBank),
-                        const SizedBox(height: 16),
-                        _buildTextField(holderNameController, "Account Holder Name", Icons.person_rounded, readOnly: !_isNewBank),
-                        const SizedBox(height: 16),
-                        _buildTextField(ifscController, "IFSC Code", Icons.qr_code_rounded, errorText: ifscError, readOnly: !_isNewBank, onChanged: (v) {
-                          setModalState(() => ifscError = (v.trim().isEmpty) ? "Required" : null);
-                        }),
-                        const SizedBox(height: 16),
-                        _buildTextField(accountController, "Account Number", Icons.numbers_rounded, isNumber: true, errorText: accountError, readOnly: !_isNewBank, onChanged: (v) {
-                          setModalState(() => accountError = (v.trim().isEmpty) ? "Required" : null);
-                        }),
-                        const SizedBox(height: 16),
-                        _buildTextField(mobileController, "Mobile linked to Bank", Icons.phone_android_rounded, isNumber: true, errorText: mobileError, readOnly: !_isNewBank, onChanged: (v) {
-                          setModalState(() => mobileError = (v.length == 10) ? null : "Enter 10-digit mobile");
-                        }),
-                        if (_isNewBank) ...[
-                          const SizedBox(height: 24),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.05), borderRadius: BorderRadius.circular(16)),
-                            child: CheckboxListTile(
-                              value: shopData['saveDetails'] ?? true, // Local state or temporary bool needed
-                              onChanged: (v) => setModalState(() => shopData['saveDetails'] = v),
-                              title: const Text("Save these details for future use?", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
-                              controlAffinity: ListTileControlAffinity.leading,
-                              contentPadding: EdgeInsets.zero,
-                              activeColor: AppColors.primaryBlue,
-                              dense: true,
-                            ),
-                          ),
-                        ],
-                      ],
-                      
-                      const SizedBox(height: 32),
-                      
-                      if (_isExpanded && amountController.text.isNotEmpty && amountError == null) ...[
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                          decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(16)),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                               Text("TOTAL PAYOUT", style: GoogleFonts.manrope(fontSize: 11, fontWeight: FontWeight.w900, color: AppColors.textTertiary)),
-                               Text("₹${amountController.text}", style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.w900, color: AppColors.primaryBlue)),
-                            ],
-                          ),
+                      ),
+                    const SizedBox(height: 20),
+
+                    // Raise Request button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 58,
+                      child: ElevatedButton.icon(
+                        onPressed: (isLoading || !isValid()) ? null : submit,
+                        icon: isLoading
+                            ? const SizedBox(
+                                width: 18, height: 18,
+                                child: CircularProgressIndicator(
+                                    color: Colors.white, strokeWidth: 2.5))
+                            : const Icon(Icons.send_rounded, size: 18),
+                        label: Text(
+                          isLoading ? "Submitting..." : "Raise Withdrawal Request",
+                          style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w900, fontSize: 15),
                         ),
-                        const SizedBox(height: 24),
-                      ],
-                      
-                      ElevatedButton(
-                        onPressed: (_isLoading || !isFormValid()) ? null : () async {
-                           final bool? confirmed = await showDialog<bool>(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-                              title: Text("Confirm Payout", style: GoogleFonts.inter(fontWeight: FontWeight.w900)),
-                              content: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text("Amount: ₹${amountController.text}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.primaryBlue)),
-                                  const SizedBox(height: 20),
-                                  _confirmRow(Icons.account_balance_rounded, bankNameController.text),
-                                  _confirmRow(Icons.person_rounded, holderNameController.text),
-                                  _confirmRow(Icons.numbers_rounded, accountController.text),
-                                ],
-                              ),
-                              actions: [
-                                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("CANCEL")),
-                                ElevatedButton(
-                                  onPressed: () => Navigator.pop(context, true),
-                                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                                  child: const Text("PROCEED"),
-                                ),
-                              ],
-                            ),
-                          );
-
-                          if (confirmed != true) return;
-
-                          setModalState(() => _isLoading = true);
-                          final amount = double.tryParse(amountController.text) ?? 0.0;
-                          try {
-                            await shopRef.firestore.runTransaction((transaction) async {
-                              final shopDoc = await transaction.get(shopRef);
-                              final liveBalance = (shopDoc.data() as Map<String, dynamic>?)?['walletBalance'] ?? 0.0;
-                              if (liveBalance < amount) throw "Insufficient balance";
-
-                              final saveDetails = shopData['saveDetails'] ?? true;
-                              if (saveDetails) {
-                                transaction.update(shopRef, {
-                                  'walletBalance': (liveBalance - amount).toDouble(),
-                                  'bankName': bankNameController.text.trim().toUpperCase(),
-                                  'holderName': holderNameController.text.trim().toUpperCase(),
-                                  'ifscCode': ifscController.text.trim().toUpperCase(),
-                                  'accountNumber': accountController.text.trim(),
-                                  'bankMobile': mobileController.text.trim(),
-                                });
-                              } else {
-                                transaction.update(shopRef, {
-                                  'walletBalance': (liveBalance - amount).toDouble(),
-                                });
-                              }
-
-                              final requestRef = FirebaseFirestore.instance.collection('withdrawal_requests').doc();
-                              transaction.set(requestRef, {
-                                'requestId': requestRef.id,
-                                'shopId': widget.user.uid,
-                                'shopName': shopData['shopName'] ?? 'Shop',
-                                'shopMobile': shopData['mobile'] ?? 'N/A',
-                                'bankName': bankNameController.text.trim().toUpperCase(),
-                                'holderName': holderNameController.text.trim().toUpperCase(),
-                                'ifscCode': ifscController.text.trim().toUpperCase(),
-                                'accountNumber': accountController.text.trim(),
-                                'bankMobile': mobileController.text.trim(),
-                                'amount': amount,
-                                'status': 'pending',
-                                'requestedAt': FieldValue.serverTimestamp(),
-                                'notified': false, // Ensure backend sees it
-                              });
-
-                              final transRef = shopRef.collection('transactions').doc();
-                              transaction.set(transRef, {
-                                'amount': amount,
-                                'title': 'Payout Request: Pending',
-                                'timestamp': FieldValue.serverTimestamp(),
-                                'type': 'debit',
-                                'status': 'pending',
-                                'requestId': requestRef.id,
-                              });
-                            });
-                            if (context.mounted) { 
-                              Navigator.pop(context); 
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Payout Request Submitted!"), backgroundColor: AppColors.success)); 
-                            }
-                          } catch (e) {
-                             setModalState(() => _isLoading = false);
-                             if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: AppColors.error));
-                          }
-                        },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primaryBlue,
+                          backgroundColor: const Color(0xFF5F259F),
                           disabledBackgroundColor: Colors.grey.shade200,
                           foregroundColor: Colors.white,
-                          minimumSize: const Size(double.infinity, 64),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16)),
                           elevation: 0,
                         ),
-                        child: _isLoading 
-                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
-                          : const Text("SUBMIT Payout", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                       ),
-                      const SizedBox(height: 20),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
           );
-          },
-        );
-      },
+        },
+      ),
     );
   }
 
-  Widget _buildSelectionBar({required String title, String? subtitle, String? extra, required IconData icon, required bool isSelected, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.primaryBlue.withOpacity(0.05) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: isSelected ? AppColors.primaryBlue : AppColors.border, width: 2),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: isSelected ? AppColors.primaryBlue : AppColors.textTertiary),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: GoogleFonts.manrope(fontSize: 12, fontWeight: FontWeight.w900, color: isSelected ? AppColors.textPrimary : AppColors.textTertiary)),
-                  if (subtitle != null) ...[
-                    const SizedBox(height: 2),
-                    Text(subtitle, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
-                  ],
-                  if (extra != null) ...[
-                    Text("Name: $extra", style: const TextStyle(fontSize: 9, color: Colors.grey, fontWeight: FontWeight.w600)),
-                  ],
-                ],
-              ),
-            ),
-            Icon(Icons.check_circle_rounded, color: isSelected ? AppColors.primaryBlue : Colors.transparent, size: 24),
-          ],
+  Widget _buildUpiField(TextEditingController ctrl, String label, IconData icon,
+      {bool isNumber = false, String? hint}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: TextField(
+        controller: ctrl,
+        keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+        inputFormatters:
+            isNumber ? [FilteringTextInputFormatter.digitsOnly] : null,
+        decoration: InputDecoration(
+          icon: Icon(icon, color: const Color(0xFF5F259F), size: 20),
+          labelText: label,
+          hintText: hint,
+          labelStyle: GoogleFonts.manrope(
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+              color: AppColors.textSecondary),
+          hintStyle: GoogleFonts.manrope(
+              fontSize: 12, color: AppColors.textTertiary),
+          border: InputBorder.none,
         ),
       ),
     );
   }
 
-  Widget _buildTextField(TextEditingController ctrl, String label, IconData icon, {bool isNumber = false, String? errorText, bool readOnly = false, Function(String)? onChanged}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          decoration: BoxDecoration(
-            color: readOnly ? Colors.grey.shade50 : AppColors.background, 
-            borderRadius: BorderRadius.circular(16), 
-            border: Border.all(color: errorText != null ? AppColors.error : (readOnly ? Colors.grey.shade200 : AppColors.border), width: errorText != null ? 1.5 : 1)
-          ),
-          child: TextField(
-            controller: ctrl, onChanged: onChanged,
-            readOnly: readOnly,
-            style: TextStyle(color: readOnly ? AppColors.textSecondary : AppColors.textPrimary, fontWeight: readOnly ? FontWeight.w600 : FontWeight.normal),
-            keyboardType: isNumber ? TextInputType.number : TextInputType.text,
-            inputFormatters: isNumber ? [FilteringTextInputFormatter.digitsOnly] : null,
-            decoration: InputDecoration(
-              icon: Icon(icon, color: errorText != null ? AppColors.error : (readOnly ? Colors.grey : AppColors.primaryBlue), size: 20), 
-              labelText: label, 
-              labelStyle: GoogleFonts.manrope(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textSecondary),
-              border: InputBorder.none
-            ),
-          ),
-        ),
-        if (errorText != null) Padding(padding: const EdgeInsets.only(left: 12, top: 4), child: Text(errorText, style: const TextStyle(color: AppColors.error, fontSize: 11, fontWeight: FontWeight.bold))),
-      ],
-    );
-  }
 
-  Widget _confirmRow(IconData icon, String val) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Icon(icon, size: 14, color: AppColors.primaryBlue),
-          const SizedBox(width: 8),
-          Expanded(child: Text(val, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13))),
-        ],
-      ),
-    );
-  }
+
 
   @override
   Widget build(BuildContext context) {

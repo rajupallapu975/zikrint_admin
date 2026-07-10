@@ -27,6 +27,22 @@ class _PendingTabState extends State<PendingTab> {
   final Set<String> _expandedBatches = {};
 
   Future<void> _showScanDialog(String mainId, List<OrderModel> items) async {
+    // 🚫 Guard: Ensure ALL items in the batch are fully printed before allowing scan
+    final allPrinted = items.every((o) =>
+        o.orderStatus.toLowerCase().trim() == 'printing completed' ||
+        o.orderStatus.toLowerCase().trim() == 'order completed');
+
+    if (!allPrinted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Order is not yet printed. Cannot deliver before printing is complete.'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
     final orderId = items.first.id;
     final bool? scanResult = await Navigator.push(
       context,

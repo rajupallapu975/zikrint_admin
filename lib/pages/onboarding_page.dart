@@ -528,11 +528,42 @@ class _OnboardingPageState extends State<OnboardingPage> {
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
-                        QrImageView(
-                          data: 'zikrint-shop:$shopId',
-                          version: QrVersions.auto,
-                          size: 180.0,
-                          backgroundColor: Colors.white,
+                        Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            QrImageView(
+                              data: 'zikrint-shop:$shopId',
+                              version: QrVersions.auto,
+                              size: 180.0,
+                              backgroundColor: Colors.white,
+                              errorCorrectionLevel: QrErrorCorrectLevel.H,
+                              gapless: false,
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.black, width: 2),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.1),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  )
+                                ],
+                              ),
+                              child: Text(
+                                "Zikrint",
+                                style: GoogleFonts.outfit(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 13,
+                                  color: Colors.black,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 12),
                         Text(shopName, style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 16, color: AppColors.textPrimary)),

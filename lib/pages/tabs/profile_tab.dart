@@ -122,12 +122,43 @@ class _ProfileTabState extends State<ProfileTab> {
                   padding: const EdgeInsets.all(20),
                   child: Column(
                     children: [
-                      QrImageView(
-                        data: 'zikrint-shop:${widget.user.uid}',
-                        version: QrVersions.auto,
-                        size: 220.0,
-                        backgroundColor: Colors.white,
-                      ),
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          QrImageView(
+                            data: 'zikrint-shop:${widget.user.uid}',
+                            version: QrVersions.auto,
+                            size: 220.0,
+                            backgroundColor: Colors.white,
+                            errorCorrectionLevel: QrErrorCorrectLevel.H,
+                            gapless: false,
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.black, width: 2),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.1),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 2),
+                                  )
+                                ],
+                              ),
+                              child: Text(
+                                "Zikrint",
+                                style: GoogleFonts.outfit(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 15,
+                                  color: Colors.black,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       const SizedBox(height: 12),
                       Text(widget.shopData?['shopName'] ?? "Zikrint Shop", style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 18, color: AppColors.textPrimary)),
                     ],

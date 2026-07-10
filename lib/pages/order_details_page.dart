@@ -161,26 +161,22 @@ class _OrderDetailsPageState extends State<OrderDetailsPage> {
                     .join(' ');
                 return _buildConfigRow(Icons.settings_suggest_outlined, keyDisplay, entry.value.toString());
               }).toList(),
-            // Show shop's price only (printing cost + cover page charge). No platform fee shown.
+            if (widget.order.bindingType != null && widget.order.bindingType!.isNotEmpty) ...[
+              _buildConfigRow(Icons.menu_book_outlined, "Binding Type", widget.order.bindingType!.toUpperCase()),
+              _buildConfigRow(Icons.monetization_on_outlined, "Binding Cost", "₹${widget.order.bindingCost.toStringAsFixed(2)}"),
+            ],
+            // Show shop's price only (printing cost + cover page charge + binding cost). No platform fee shown.
             _buildConfigRow(
               Icons.payments_outlined,
               "Printing Cost",
               "₹${(widget.order.printingCost > 0 ? widget.order.printingCost : widget.order.amount).toStringAsFixed(2)}",
             ),
-            if (widget.order.generateCoverPage)
-              _buildConfigRow(
-                Icons.receipt_long_outlined,
-                "Total to Collect",
-                "₹${((widget.order.printingCost > 0 ? widget.order.printingCost : widget.order.amount) + widget.order.coverPageCharge).toStringAsFixed(2)}",
-                isLast: true,
-              )
-            else
-              _buildConfigRow(
-                Icons.receipt_long_outlined,
-                "Total to Collect",
-                "₹${(widget.order.printingCost > 0 ? widget.order.printingCost : widget.order.amount).toStringAsFixed(2)}",
-                isLast: true,
-              ),
+            _buildConfigRow(
+              Icons.receipt_long_outlined,
+              "Total to Collect",
+              "₹${((widget.order.printingCost > 0 ? widget.order.printingCost : widget.order.amount) + widget.order.bindingCost + (widget.order.generateCoverPage ? widget.order.coverPageCharge : 0.0)).toStringAsFixed(2)}",
+              isLast: true,
+            ),
 
             const SizedBox(height: 40),
             Text("CUSTOMER INFO", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w900, color: AppColors.textTertiary, letterSpacing: 1.5)),

@@ -480,15 +480,19 @@ class _ZikrinterServicesPageState extends State<ZikrinterServicesPage> {
     );
   }
 
-  void _showConfigureBottomSheet(
+  Future<void> _showConfigureBottomSheet(
     BuildContext context,
     String serviceId,
     String serviceName,
     Map<String, dynamic> serviceData,
     Map<String, dynamic>? existingShopConfig, {
     List<String>? pendingSizes,
-  }) {
-    showModalBottomSheet(
+  }) async {
+    print('DEBUG: [Edit Pricing Clicked]');
+    print('DEBUG:   Service ID: $serviceId');
+    print('DEBUG:   Service Name: $serviceName');
+    print('DEBUG:   Existing Config: $existingShopConfig');
+    await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -499,10 +503,13 @@ class _ZikrinterServicesPageState extends State<ZikrinterServicesPage> {
           serviceName: serviceName,
           serviceData: serviceData,
           existingShopConfig: existingShopConfig,
+          shopServicesConfig: _shopData['zikrinterServices'],
           pendingSizes: pendingSizes,
         );
       },
     );
+    setState(() => _isLoading = true);
+    await _fetchServicesAndPricing();
   }
 }
 
@@ -512,6 +519,7 @@ class _ServiceConfigureSheet extends StatefulWidget {
   final String serviceName;
   final Map<String, dynamic> serviceData;
   final Map<String, dynamic>? existingShopConfig;
+  final Map<String, dynamic>? shopServicesConfig;
   final List<String>? pendingSizes;
 
   Map<String, dynamic> get globalParams => serviceData['parameters'] as Map<String, dynamic>? ?? {};
@@ -522,6 +530,7 @@ class _ServiceConfigureSheet extends StatefulWidget {
     required this.serviceName,
     required this.serviceData,
     this.existingShopConfig,
+    this.shopServicesConfig,
     this.pendingSizes,
   });
 
@@ -533,6 +542,10 @@ class _ServiceConfigureSheetState extends State<_ServiceConfigureSheet> {
   final _formKey = GlobalKey<FormState>();
   final Map<String, Map<String, TextEditingController>> _controllers = {};
 
+  final TextEditingController _spiralController = TextEditingController();
+  final TextEditingController _thermalController = TextEditingController();
+  final TextEditingController _paperController = TextEditingController();
+
   bool _agreedToTerms = false;
   bool _isLoading = false;
 
@@ -540,6 +553,11 @@ class _ServiceConfigureSheetState extends State<_ServiceConfigureSheet> {
   void initState() {
     super.initState();
     _agreedToTerms = widget.existingShopConfig?['agreedToTerms'] == true;
+    
+    final existingBindings = widget.existingShopConfig?['bindings'] as Map<String, dynamic>? ?? {};
+    _spiralController.text = (existingBindings['spiral'] ?? '').toString();
+    _thermalController.text = (existingBindings['thermal'] ?? '').toString();
+    _paperController.text = (existingBindings['paper'] ?? '').toString();
   }
 
   TextEditingController _getController(String size, String paramKey) {
@@ -549,33 +567,54 @@ class _ServiceConfigureSheetState extends State<_ServiceConfigureSheet> {
     }
 
     if (!_controllers[sizeKey]!.containsKey(paramKey)) {
-      final paperSizeConfig = widget.existingShopConfig?['paperSizes']?[sizeKey] ?? {};
-      final colorMode = paramKey.split('_')[0];
-      final type = paramKey.split('_')[1];
+      final isProjectBinding = widget.serviceId == 'project_binding' || widget.serviceName.toLowerCase().contains('project');
+      Map<String, dynamic> sourceConfig = widget.existingShopConfig ?? {};
 
-      // Fetch nested value
-      dynamic value = paperSizeConfig[colorMode]?[type == 'bulkPrinting' ? 'bulkPrintingPrice' : '${type}Price'];
+      if (isProjectBinding) {
+        if (sizeKey == 'a4') {
+          // Documents (Xerox)
+          sourceConfig = widget.shopServicesConfig?['ZHwQd18Vy08TZkyBFXjB'] as Map<String, dynamic>? ?? {};
+        } else if (sizeKey.contains('bond')) {
+          // Bond Paper Printing
+          sourceConfig = widget.shopServicesConfig?['nyAKL7mMnGGkTx2Ow9HA'] as Map<String, dynamic>? ?? {};
+        }
+      }
 
-      // Fallback to legacy flat prefixed key
-      value ??= widget.existingShopConfig?['${sizeKey}_${colorMode}_${type}Price'] ?? 
-                widget.existingShopConfig?['${sizeKey}_${colorMode}_${type == 'bulkPrinting' ? 'bulkPrinting' : type}Price'];
+      final lookupSizeKey = sizeKey.contains('bond') ? 'a4' : sizeKey;
+      final paperSizeConfig = sourceConfig['paperSizes']?[lookupSizeKey] ?? {};
+      dynamic value;
 
-      // A4 fallback
-      if (value == null && sizeKey == 'a4') {
-        if (colorMode == 'color') {
-          if (type == 'singleSide') {
-            value = widget.existingShopConfig?['color_singleSidePrice'] ??
-                    widget.existingShopConfig?['singleSidePrice'];
-          } else if (type == 'doubleSide') {
-            value = widget.existingShopConfig?['color_doubleSidePrice'] ??
-                    widget.existingShopConfig?['doubleSidePrice'];
-          } else if (type == 'bulkPrinting') {
-            value = widget.existingShopConfig?['color_bulkPrintingPrice'] ??
-                    widget.existingShopConfig?['bulkPrintingPrice'];
+      if (paramKey == 'price') {
+        value = paperSizeConfig['price'] ?? paperSizeConfig['color']?['singleSidePrice'] ?? paperSizeConfig['bw']?['singleSidePrice'];
+        value ??= sourceConfig['${lookupSizeKey}_color_singleSidePrice'] ?? sourceConfig['${lookupSizeKey}_bw_singleSidePrice'];
+      } else {
+        final colorMode = paramKey.split('_')[0];
+        final type = paramKey.split('_')[1];
+
+        // Fetch nested value
+        value = paperSizeConfig[colorMode]?[type == 'bulkPrinting' ? 'bulkPrintingPrice' : '${type}Price'];
+
+        // Fallback to legacy flat prefixed key
+        value ??= widget.existingShopConfig?['${sizeKey}_${colorMode}_${type}Price'] ?? 
+                  widget.existingShopConfig?['${sizeKey}_${colorMode}_${type == 'bulkPrinting' ? 'bulkPrinting' : type}Price'];
+
+        // A4 fallback
+        if (value == null && sizeKey == 'a4') {
+          if (colorMode == 'color') {
+            if (type == 'singleSide') {
+              value = widget.existingShopConfig?['color_singleSidePrice'] ??
+                      widget.existingShopConfig?['singleSidePrice'];
+            } else if (type == 'doubleSide') {
+              value = widget.existingShopConfig?['color_doubleSidePrice'] ??
+                      widget.existingShopConfig?['doubleSidePrice'];
+            } else if (type == 'bulkPrinting') {
+              value = widget.existingShopConfig?['color_bulkPrintingPrice'] ??
+                      widget.existingShopConfig?['bulkPrintingPrice'];
+            }
+          } else {
+            value = widget.existingShopConfig?['bw_${type}Price'] ??
+                    widget.existingShopConfig?['bw_${type == 'bulkPrinting' ? 'bulkPrinting' : type}Price'];
           }
-        } else {
-          value = widget.existingShopConfig?['bw_${type}Price'] ??
-                  widget.existingShopConfig?['bw_${type == 'bulkPrinting' ? 'bulkPrinting' : type}Price'];
         }
       }
 
@@ -594,12 +633,20 @@ class _ServiceConfigureSheetState extends State<_ServiceConfigureSheet> {
         c.dispose();
       }
     }
+    _spiralController.dispose();
+    _thermalController.dispose();
+    _paperController.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    print('DEBUG: [_submit] Save button clicked.');
+    if (!_formKey.currentState!.validate()) {
+      print('DEBUG: [_submit] Form validation failed.');
+      return;
+    }
     if (!_agreedToTerms) {
+      print('DEBUG: [_submit] Agreed to terms is false. Blocking submit.');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('You must agree to the terms and platform commission.'),
@@ -615,46 +662,99 @@ class _ServiceConfigureSheetState extends State<_ServiceConfigureSheet> {
       final Map<String, dynamic> pricingData = {};
       final List<String> paperSizes = List<String>.from(widget.serviceData['paperSizes'] ?? ['A4']);
       final List<String> sizesToSave = widget.pendingSizes ?? paperSizes;
+      
+      final isProjectBinding = widget.serviceId == 'project_binding' || widget.serviceName.toLowerCase().contains('project');
+      Map<String, dynamic>? bindingsPricing;
 
-      for (final size in sizesToSave) {
-        final sizeKey = size.toLowerCase();
-
-        final double colorSinglePrice = double.tryParse(_getController(size, 'color_singleSide').text) ?? 0.0;
-        final double colorDoublePrice = double.tryParse(_getController(size, 'color_doubleSide').text) ?? 0.0;
-        final double colorBulkPrice = double.tryParse(_getController(size, 'color_bulkPrinting').text) ?? 0.0;
-
-        final double bwSinglePrice = double.tryParse(_getController(size, 'bw_singleSide').text) ?? 0.0;
-        final double bwDoublePrice = double.tryParse(_getController(size, 'bw_doubleSide').text) ?? 0.0;
-        final double bwBulkPrice = double.tryParse(_getController(size, 'bw_bulkPrinting').text) ?? 0.0;
-
-        pricingData[sizeKey] = {
-          'bw': {
-            'singleSidePrice': bwSinglePrice,
-            'doubleSidePrice': bwDoublePrice,
-            'bulkPrintingPrice': bwBulkPrice,
-          },
-          'color': {
-            'singleSidePrice': colorSinglePrice,
-            'doubleSidePrice': colorDoublePrice,
-            'bulkPrintingPrice': colorBulkPrice,
-          }
+      if (isProjectBinding) {
+        // 1. Prepare bindings pricing
+        final double spiralPrice = double.tryParse(_spiralController.text) ?? 0.0;
+        final double thermalPrice = double.tryParse(_thermalController.text) ?? 0.0;
+        final double paperPrice = double.tryParse(_paperController.text) ?? 0.0;
+        bindingsPricing = {
+          'spiral': spiralPrice,
+          'thermal': thermalPrice,
+          'paper': paperPrice,
         };
-      }
 
-      final response = await http.post(
-        Uri.parse('${dotenv.env['BACKEND_URL'] ?? "https://zikrint.duckdns.org"}/api/shop/pricing'),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
+        print('DEBUG: [_submit] Project Binding service detected.');
+        print('DEBUG:   Bindings pricing: $bindingsPricing');
+
+        // 2. Save Project Binding (without paperSizes printing pricing)
+        final Map<String, dynamic> payload = {
+          'shopId': widget.shopId,
+          'serviceId': widget.serviceId,
+          'isEnabled': true,
+          'pricingData': {},
+          'bindingsPricing': bindingsPricing,
+        };
+
+        print('DEBUG: [_submit] Sending POST payload to backend: ${jsonEncode(payload)}');
+        final response = await http.post(
+          Uri.parse('${dotenv.env['BACKEND_URL'] ?? "https://zikrint.duckdns.org"}/api/shop/pricing'),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode(payload),
+        );
+
+        print('DEBUG: [_submit] Response status code: ${response.statusCode}');
+        print('DEBUG: [_submit] Response body: ${response.body}');
+
+        if (response.statusCode != 200) {
+          throw Exception("Backend failed to save pricing: ${response.body}");
+        }
+      } else {
+        print('DEBUG: [_submit] Normal service detected: ${widget.serviceName}');
+        for (final size in sizesToSave) {
+          final sizeKey = size.toLowerCase();
+
+          final double colorSinglePrice = double.tryParse(_getController(size, 'color_singleSide').text) ?? 0.0;
+          final double colorDoublePrice = double.tryParse(_getController(size, 'color_doubleSide').text) ?? 0.0;
+          final double colorBulkPrice = double.tryParse(_getController(size, 'color_bulkPrinting').text) ?? 0.0;
+
+          final double bwSinglePrice = double.tryParse(_getController(size, 'bw_singleSide').text) ?? 0.0;
+          final double bwDoublePrice = double.tryParse(_getController(size, 'bw_doubleSide').text) ?? 0.0;
+          final double bwBulkPrice = double.tryParse(_getController(size, 'bw_bulkPrinting').text) ?? 0.0;
+
+          pricingData[sizeKey] = {
+            'bw': {
+              'singleSidePrice': bwSinglePrice,
+              'doubleSidePrice': bwDoublePrice,
+              'bulkPrintingPrice': bwBulkPrice,
+            },
+            'color': {
+              'singleSidePrice': colorSinglePrice,
+              'doubleSidePrice': colorDoublePrice,
+              'bulkPrintingPrice': colorBulkPrice,
+            }
+          };
+        }
+
+        print('DEBUG: [_submit] Prepared pricingData: $pricingData');
+
+        final Map<String, dynamic> payload = {
           'shopId': widget.shopId,
           'serviceId': widget.serviceId,
           'isEnabled': true,
           'pricingData': pricingData,
-        }),
-      );
+        };
 
-      if (response.statusCode != 200) {
-        throw Exception("Backend failed to save pricing: ${response.body}");
+
+        print('DEBUG: [_submit] Sending POST payload to backend: ${jsonEncode(payload)}');
+        final response = await http.post(
+          Uri.parse('${dotenv.env['BACKEND_URL'] ?? "https://zikrint.duckdns.org"}/api/shop/pricing'),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode(payload),
+        );
+
+        print('DEBUG: [_submit] Response status code: ${response.statusCode}');
+        print('DEBUG: [_submit] Response body: ${response.body}');
+
+        if (response.statusCode != 200) {
+          throw Exception("Backend failed to save pricing: ${response.body}");
+        }
       }
+
+      print('DEBUG: [_submit] Success! Service configured successfully.');
 
       if (mounted) {
         Navigator.pop(context);
@@ -663,6 +763,7 @@ class _ServiceConfigureSheetState extends State<_ServiceConfigureSheet> {
         );
       }
     } catch (e) {
+      print('DEBUG: [_submit] ERROR occurred during submit: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to save configuration: $e'), backgroundColor: AppColors.error),
@@ -713,6 +814,7 @@ class _ServiceConfigureSheetState extends State<_ServiceConfigureSheet> {
 
     final List<String> paperSizes = List<String>.from(widget.serviceData['paperSizes'] ?? ['A4']);
     final List<String> sizesToDisplay = widget.pendingSizes ?? paperSizes;
+    final isProjectBinding = widget.serviceId == 'project_binding' || widget.serviceName.toLowerCase().contains('project');
 
     return Container(
       decoration: const BoxDecoration(
@@ -757,28 +859,36 @@ class _ServiceConfigureSheetState extends State<_ServiceConfigureSheet> {
               const SizedBox(height: 24),
 
               // Render sizes
-              ...sizesToDisplay.map((size) {
-                final sizeKey = size.toLowerCase();
-
-                // Color Parameters
-                final colorSingleGlobal = widget.globalParams['${sizeKey}_color_singleSide'] ?? widget.globalParams['color_singleSide'] ?? {};
-                final colorDoubleGlobal = widget.globalParams['${sizeKey}_color_doubleSide'] ?? widget.globalParams['color_doubleSide'] ?? {};
-                final colorBulkGlobal = widget.globalParams['${sizeKey}_color_bulkPrinting'] ?? widget.globalParams['color_bulkPrinting'] ?? {};
-
-                // Black & White Parameters
-                final bwSingleGlobal = widget.globalParams['${sizeKey}_bw_singleSide'] ?? widget.globalParams['bw_singleSide'] ?? {};
-                final bwDoubleGlobal = widget.globalParams['${sizeKey}_bw_doubleSide'] ?? widget.globalParams['bw_doubleSide'] ?? {};
-                final bwBulkGlobal = widget.globalParams['${sizeKey}_bw_bulkPrinting'] ?? widget.globalParams['bw_bulkPrinting'] ?? {};
-
-                final colorSingleEnabled = colorSingleGlobal['isEnabled'] == true || widget.globalParams['color_singleSide']?['isEnabled'] == true;
-                final colorDoubleEnabled = colorDoubleGlobal['isEnabled'] == true || widget.globalParams['color_doubleSide']?['isEnabled'] == true;
-                final colorBulkEnabled = colorBulkGlobal['isEnabled'] == true || widget.globalParams['color_bulkPrinting']?['isEnabled'] == true;
-
-                final bwSingleEnabled = bwSingleGlobal['isEnabled'] == true || widget.globalParams['bw_singleSide']?['isEnabled'] == true;
-                final bwDoubleEnabled = bwDoubleGlobal['isEnabled'] == true || widget.globalParams['bw_doubleSide']?['isEnabled'] == true;
-                final bwBulkEnabled = bwBulkGlobal['isEnabled'] == true || widget.globalParams['bw_bulkPrinting']?['isEnabled'] == true;
-
-                return Card(
+              if (isProjectBinding) ...[
+                Card(
+                  margin: const EdgeInsets.only(bottom: 24),
+                  elevation: 0,
+                  color: Colors.blue[50]!.withOpacity(0.6),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(color: Colors.blue[100]!),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.info_outline_rounded, color: Colors.blueAccent, size: 24),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Printing rates for A4 and Bond Paper (A4) are automatically fetched from your Xerox and Bond Paper Printing configurations.',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: Colors.blue[900],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Card(
                   margin: const EdgeInsets.only(bottom: 24),
                   elevation: 0,
                   color: Colors.grey[50],
@@ -792,89 +902,191 @@ class _ServiceConfigureSheetState extends State<_ServiceConfigureSheet> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '${size.toUpperCase()} Sheet pricing',
+                          'Configure Binding Rates',
                           style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.primaryBlue),
                         ),
-                        const SizedBox(height: 16),
-                        
-                        if (colorSingleEnabled || colorDoubleEnabled || colorBulkEnabled) ...[
-                          const Text(
-                            'Color Pricing (per page)',
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blueAccent),
-                          ),
-                          const SizedBox(height: 12),
-                          if (colorSingleEnabled) ...[
-                            _buildPriceInputField(
-                              label: 'Single Side Price (Color)',
-                              commissionValue: (colorSingleGlobal['commission'] ?? widget.globalParams['color_singleSide']?['commission'] ?? 0.0).toDouble(),
-                              commissionType: colorSingleGlobal['commissionType'] ?? widget.globalParams['color_singleSide']?['commissionType'] as String?,
-                              controller: _getController(size, 'color_singleSide'),
-                            ),
-                            const SizedBox(height: 16),
-                          ],
-                          if (colorDoubleEnabled) ...[
-                            _buildPriceInputField(
-                              label: 'Double Side Price (Color)',
-                              commissionValue: (colorDoubleGlobal['commission'] ?? widget.globalParams['color_doubleSide']?['commission'] ?? 0.0).toDouble(),
-                              commissionType: colorDoubleGlobal['commissionType'] ?? widget.globalParams['color_doubleSide']?['commissionType'] as String?,
-                              controller: _getController(size, 'color_doubleSide'),
-                            ),
-                            const SizedBox(height: 16),
-                          ],
-                          if (colorBulkEnabled) ...[
-                            _buildPriceInputField(
-                              label: 'Bulk Printing Price (Color)',
-                              commissionValue: (colorBulkGlobal['commission'] ?? widget.globalParams['color_bulkPrinting']?['commission'] ?? 0.0).toDouble(),
-                              commissionType: colorBulkGlobal['commissionType'] ?? widget.globalParams['color_bulkPrinting']?['commissionType'] as String?,
-                              controller: _getController(size, 'color_bulkPrinting'),
-                              setPages: (colorBulkGlobal['setPages'] ?? widget.globalParams['color_bulkPrinting']?['setPages']) as int?,
-                            ),
-                            const SizedBox(height: 16),
-                          ],
-                        ],
-
-                        if (bwSingleEnabled || bwDoubleEnabled || bwBulkEnabled) ...[
-                          const Divider(),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Black & White Pricing (per page)',
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey),
-                          ),
-                          const SizedBox(height: 12),
-                          if (bwSingleEnabled) ...[
-                            _buildPriceInputField(
-                              label: 'Single Side Price (B&W)',
-                              commissionValue: (bwSingleGlobal['commission'] ?? widget.globalParams['bw_singleSide']?['commission'] ?? 0.0).toDouble(),
-                              commissionType: bwSingleGlobal['commissionType'] ?? widget.globalParams['bw_singleSide']?['commissionType'] as String?,
-                              controller: _getController(size, 'bw_singleSide'),
-                            ),
-                            const SizedBox(height: 16),
-                          ],
-                          if (bwDoubleEnabled) ...[
-                            _buildPriceInputField(
-                              label: 'Double Side Price (B&W)',
-                              commissionValue: (bwDoubleGlobal['commission'] ?? widget.globalParams['bw_doubleSide']?['commission'] ?? 0.0).toDouble(),
-                              commissionType: bwDoubleGlobal['commissionType'] ?? widget.globalParams['bw_doubleSide']?['commissionType'] as String?,
-                              controller: _getController(size, 'bw_doubleSide'),
-                            ),
-                            const SizedBox(height: 16),
-                          ],
-                          if (bwBulkEnabled) ...[
-                            _buildPriceInputField(
-                              label: 'Bulk Printing Price (B&W)',
-                              commissionValue: (bwBulkGlobal['commission'] ?? widget.globalParams['bw_bulkPrinting']?['commission'] ?? 0.0).toDouble(),
-                              commissionType: bwBulkGlobal['commissionType'] ?? widget.globalParams['bw_bulkPrinting']?['commissionType'] as String?,
-                              controller: _getController(size, 'bw_bulkPrinting'),
-                              setPages: (bwBulkGlobal['setPages'] ?? widget.globalParams['bw_bulkPrinting']?['setPages']) as int?,
-                            ),
-                            const SizedBox(height: 16),
-                          ],
-                        ],
+                        const SizedBox(height: 20),
+                        _buildPriceInputField(
+                          label: 'Spiral Binding Flat Price',
+                          commissionValue: (widget.globalParams['spiral_binding']?['commission'] ?? 0.0).toDouble(),
+                          commissionType: widget.globalParams['spiral_binding']?['commissionType'] as String?,
+                          controller: _spiralController,
+                        ),
+                        const SizedBox(height: 20),
+                        _buildPriceInputField(
+                          label: 'Thermal Binding Flat Price',
+                          commissionValue: (widget.globalParams['thermal_binding']?['commission'] ?? 0.0).toDouble(),
+                          commissionType: widget.globalParams['thermal_binding']?['commissionType'] as String?,
+                          controller: _thermalController,
+                        ),
+                        const SizedBox(height: 20),
+                        _buildPriceInputField(
+                          label: 'Paper Binding Flat Price',
+                          commissionValue: (widget.globalParams['paper_binding']?['commission'] ?? 0.0).toDouble(),
+                          commissionType: widget.globalParams['paper_binding']?['commissionType'] as String?,
+                          controller: _paperController,
+                        ),
                       ],
                     ),
                   ),
-                );
-              }),
+                ),
+              ] else ...[
+                ...sizesToDisplay.map((size) {
+                  final sizeKey = size.toLowerCase();
+
+                  // Color Parameters
+                  final colorSingleGlobal = widget.globalParams['${sizeKey}_color_singleSide'] ?? widget.globalParams['color_singleSide'] ?? {};
+                  final colorDoubleGlobal = widget.globalParams['${sizeKey}_color_doubleSide'] ?? widget.globalParams['color_doubleSide'] ?? {};
+                  final colorBulkGlobal = widget.globalParams['${sizeKey}_color_bulkPrinting'] ?? widget.globalParams['color_bulkPrinting'] ?? {};
+
+                  // Black & White Parameters
+                  final bwSingleGlobal = widget.globalParams['${sizeKey}_bw_singleSide'] ?? widget.globalParams['bw_singleSide'] ?? {};
+                  final bwDoubleGlobal = widget.globalParams['${sizeKey}_bw_doubleSide'] ?? widget.globalParams['bw_doubleSide'] ?? {};
+                  final bwBulkGlobal = widget.globalParams['${sizeKey}_bw_bulkPrinting'] ?? widget.globalParams['bw_bulkPrinting'] ?? {};
+
+                  final colorSingleEnabled = colorSingleGlobal['isEnabled'] == true || widget.globalParams['color_singleSide']?['isEnabled'] == true;
+                  final colorDoubleEnabled = colorDoubleGlobal['isEnabled'] == true || widget.globalParams['color_doubleSide']?['isEnabled'] == true;
+                  final colorBulkEnabled = colorBulkGlobal['isEnabled'] == true || widget.globalParams['color_bulkPrinting']?['isEnabled'] == true;
+
+                  final bwSingleEnabled = bwSingleGlobal['isEnabled'] == true || widget.globalParams['bw_singleSide']?['isEnabled'] == true;
+                  final bwDoubleEnabled = bwDoubleGlobal['isEnabled'] == true || widget.globalParams['bw_doubleSide']?['isEnabled'] == true;
+                  final bwBulkEnabled = bwBulkGlobal['isEnabled'] == true || widget.globalParams['bw_bulkPrinting']?['isEnabled'] == true;
+
+                  final isPassportService = widget.serviceId == 'passport_photos' || widget.serviceName.toLowerCase().contains('passport');
+
+                  if (isPassportService) {
+                    final packageConfig = widget.globalParams['${sizeKey}_color_singleSide'] ?? {};
+                    final commissionVal = (packageConfig['commission'] ?? 0.0).toDouble();
+                    final commissionTypeStr = packageConfig['commissionType'] as String? ?? 'percentage';
+
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 24),
+                      elevation: 0,
+                      color: Colors.grey[50],
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(color: Colors.grey[200]!),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '$size Package Pricing',
+                              style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.primaryBlue),
+                            ),
+                            const SizedBox(height: 16),
+                            _buildPriceInputField(
+                              label: 'Cost for $size',
+                              commissionValue: commissionVal,
+                              commissionType: commissionTypeStr,
+                              controller: _getController(size, 'color_singleSide'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 24),
+                    elevation: 0,
+                    color: Colors.grey[50],
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: BorderSide(color: Colors.grey[200]!),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${size.toUpperCase()} Sheet pricing',
+                            style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.primaryBlue),
+                          ),
+                          const SizedBox(height: 16),
+                          
+                          if (colorSingleEnabled || colorDoubleEnabled || colorBulkEnabled) ...[
+                            const Text(
+                              'Color Pricing (per page)',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blueAccent),
+                            ),
+                            const SizedBox(height: 12),
+                            if (colorSingleEnabled) ...[
+                              _buildPriceInputField(
+                                label: 'Single Side Price (Color)',
+                                commissionValue: (colorSingleGlobal['commission'] ?? widget.globalParams['color_singleSide']?['commission'] ?? 0.0).toDouble(),
+                                commissionType: colorSingleGlobal['commissionType'] ?? widget.globalParams['color_singleSide']?['commissionType'] as String?,
+                                controller: _getController(size, 'color_singleSide'),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                            if (colorDoubleEnabled) ...[
+                              _buildPriceInputField(
+                                label: 'Double Side Price (Color)',
+                                commissionValue: (colorDoubleGlobal['commission'] ?? widget.globalParams['color_doubleSide']?['commission'] ?? 0.0).toDouble(),
+                                commissionType: colorDoubleGlobal['commissionType'] ?? widget.globalParams['color_doubleSide']?['commissionType'] as String?,
+                                controller: _getController(size, 'color_doubleSide'),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                            if (colorBulkEnabled) ...[
+                              _buildPriceInputField(
+                                label: 'Bulk Printing Price (Color)',
+                                commissionValue: (colorBulkGlobal['commission'] ?? widget.globalParams['color_bulkPrinting']?['commission'] ?? 0.0).toDouble(),
+                                commissionType: colorBulkGlobal['commissionType'] ?? widget.globalParams['color_bulkPrinting']?['commissionType'] as String?,
+                                controller: _getController(size, 'color_bulkPrinting'),
+                                setPages: (colorBulkGlobal['setPages'] ?? widget.globalParams['color_bulkPrinting']?['setPages']) as int?,
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                          ],
+
+                          if (bwSingleEnabled || bwDoubleEnabled || bwBulkEnabled) ...[
+                            const Divider(),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Black & White Pricing (per page)',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey),
+                            ),
+                            const SizedBox(height: 12),
+                            if (bwSingleEnabled) ...[
+                              _buildPriceInputField(
+                                label: 'Single Side Price (B&W)',
+                                commissionValue: (bwSingleGlobal['commission'] ?? widget.globalParams['bw_singleSide']?['commission'] ?? 0.0).toDouble(),
+                                commissionType: bwSingleGlobal['commissionType'] ?? widget.globalParams['bw_singleSide']?['commissionType'] as String?,
+                                controller: _getController(size, 'bw_singleSide'),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                            if (bwDoubleEnabled) ...[
+                              _buildPriceInputField(
+                                label: 'Double Side Price (B&W)',
+                                commissionValue: (bwDoubleGlobal['commission'] ?? widget.globalParams['bw_doubleSide']?['commission'] ?? 0.0).toDouble(),
+                                commissionType: bwDoubleGlobal['commissionType'] ?? widget.globalParams['bw_doubleSide']?['commissionType'] as String?,
+                                controller: _getController(size, 'bw_doubleSide'),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                            if (bwBulkEnabled) ...[
+                              _buildPriceInputField(
+                                label: 'Bulk Printing Price (B&W)',
+                                commissionValue: (bwBulkGlobal['commission'] ?? widget.globalParams['bw_bulkPrinting']?['commission'] ?? 0.0).toDouble(),
+                                commissionType: bwBulkGlobal['commissionType'] ?? widget.globalParams['bw_bulkPrinting']?['commissionType'] as String?,
+                                controller: _getController(size, 'bw_bulkPrinting'),
+                                setPages: (bwBulkGlobal['setPages'] ?? widget.globalParams['bw_bulkPrinting']?['setPages']) as int?,
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+              ],
 
               const Divider(),
               const SizedBox(height: 12),
@@ -966,7 +1178,7 @@ class _ServiceConfigureSheetState extends State<_ServiceConfigureSheet> {
           ),
           validator: (value) {
             if (value == null || value.trim().isEmpty) {
-              return 'Please enter pricing amount';
+              return null; // Allow empty inputs
             }
             final amount = double.tryParse(value);
             if (amount == null) {

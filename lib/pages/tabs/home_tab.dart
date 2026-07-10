@@ -394,13 +394,14 @@ class _HomeTabState extends State<HomeTab> {
                         )
                       ),
                       if (items[0].serviceName != null) ...[
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 4),
                         Text(
-                          items[0].serviceName!,
-                          style: GoogleFonts.manrope(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textSecondary,
+                          items[0].serviceName!.toUpperCase(),
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.primaryBlue,
+                            letterSpacing: 0.5,
                           ),
                         ),
                       ],
@@ -468,12 +469,44 @@ class _HomeTabState extends State<HomeTab> {
                 ),
               ],
             ),
-            children: [
+             children: [
               const Divider(height: 1, indent: 20, endIndent: 20),
               Container(
                 color: AppColors.background.withValues(alpha: 0.5),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (items[0].serviceName != null) ...[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryBlue.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.primaryBlue.withValues(alpha: 0.2)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.star_rounded, color: AppColors.primaryBlue, size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  "SERVICE: ${items[0].serviceName!.toUpperCase()}",
+                                  style: GoogleFonts.inter(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w900,
+                                    color: AppColors.primaryBlue,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                     ..._buildFlattenedFileItems(mainId, items, isCompleted),
                     const SizedBox(height: 16),
                   ],

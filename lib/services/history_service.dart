@@ -1,6 +1,4 @@
-import 'dart:convert';
 import 'dart:async';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/order_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -18,10 +16,8 @@ class HistoryService extends ChangeNotifier {
   // Track active orders to detect when they are removed (delivered)
   final Map<String, OrderModel> _activeTracker = {};
 
-  static const String _storageKey = 'admin_order_history';
-
   Future<void> init() async {
-    await loadHistory();
+    // No-op: handled in startListening
   }
 
   void startListening(String shopId) {
@@ -29,29 +25,31 @@ class HistoryService extends ChangeNotifier {
     _orderSubscription = _firestore
         .collection('shops')
         .doc(shopId)
-        .collection('orders')
+        .collection('history')
         .snapshots()
         .listen((snapshot) {
-      for (var change in snapshot.docChanges) {
-        final order = OrderModel.fromFirestore(change.doc);
-        
-        if (change.type == DocumentChangeType.added || change.type == DocumentChangeType.modified) {
-          _activeTracker[order.id] = order;
-          
-          // 🛡️ If order is marked as completed, save to history immediately
-          if (order.orderStatus.toLowerCase().trim() == 'order completed') {
-            saveOrder(order);
-          }
-        } 
-        else if (change.type == DocumentChangeType.removed) {
-          // 🛡️ If an order is REMOVED from Firebase, it means it was DELIVERED
-          final cached = _activeTracker[order.id];
-          if (cached != null) {
-            saveOrder(cached);
-            _activeTracker.remove(order.id);
-          }
-        }
+      _history.clear();
+      for (var doc in snapshot.docs) {
+        _history.add(OrderModel.fromFirestore(doc));
       }
+      // Sort in-memory by collectedAt descending to prevent index requirement failures
+      _history.sort((a, b) {
+        try {
+          final aDoc = snapshot.docs.firstWhere((d) => d.id == a.id);
+          final bDoc = snapshot.docs.firstWhere((d) => d.id == b.id);
+          final aTime = aDoc.data()['collectedAt'] as Timestamp?;
+          final bTime = bDoc.data()['collectedAt'] as Timestamp?;
+          if (aTime == null && bTime == null) return 0;
+          if (aTime == null) return 1;
+          if (bTime == null) return -1;
+          return bTime.compareTo(aTime);
+        } catch (_) {
+          return 0;
+        }
+      });
+      notifyListeners();
+    }, onError: (e) {
+      debugPrint("Error listening to database history: $e");
     });
   }
 
@@ -61,44 +59,21 @@ class HistoryService extends ChangeNotifier {
     super.dispose();
   }
 
-  Future<void> saveOrder(OrderModel order) async {
-    // 🛡️ Avoid duplicates
-    if (_history.any((o) => o.id == order.id)) return;
-
-    _history.insert(0, order);
-    
-    await _persist();
-    notifyListeners();
-  }
-
-  Future<void> loadHistory() async {
+  Future<void> clearHistory(String shopId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final String? data = prefs.getString(_storageKey);
-      if (data != null) {
-        final List<dynamic> decoded = jsonDecode(data);
-        _history.clear();
-        _history.addAll(decoded.map((json) => OrderModel.fromJson(json)).toList());
-        notifyListeners();
+      final snapshot = await _firestore
+          .collection('shops')
+          .doc(shopId)
+          .collection('history')
+          .get();
+      
+      final batch = _firestore.batch();
+      for (var doc in snapshot.docs) {
+        batch.delete(doc.reference);
       }
+      await batch.commit();
     } catch (e) {
-      debugPrint("Error loading history: $e");
-    }
-  }
-
-  Future<void> clearHistory() async {
-    _history.clear();
-    await _persist();
-    notifyListeners();
-  }
-
-  Future<void> _persist() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final String encoded = jsonEncode(_history.map((o) => o.toJson()).toList());
-      await prefs.setString(_storageKey, encoded);
-    } catch (e) {
-      debugPrint("Error persisting history: $e");
+      debugPrint("Error clearing database history: $e");
     }
   }
 }
