@@ -20,6 +20,7 @@ import 'package:flutter/foundation.dart';
 import 'services/history_service.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'dart:async';
+import 'dart:math';
 import 'utils/web_helpers/web_tab_close.dart';
 
 void main() async {
@@ -176,18 +177,20 @@ class _MyHomePageState extends State<MyHomePage> {
   StreamSubscription<DocumentSnapshot>? _shopSubscription;
   Timer? _heartbeatTimer;
 
+  late final String _sessionId;
   String? documentsXeroxServiceId;
   bool _isServiceConfigured = false;
 
   @override
   void initState() {
     super.initState();
+    _sessionId = "${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999999)}";
 
     _pageController = PageController(initialPage: _selectedIndex);
     _listenToShopData();
     _startHeartbeat();
     _checkDocumentsXeroxConfig();
-    initializeTabCloseListener(widget.user.uid, dotenv.env['BACKEND_URL'] ?? "https://zikrint.duckdns.org");
+    initializeTabCloseListener(widget.user.uid, dotenv.env['BACKEND_URL'] ?? "https://zikrint.duckdns.org", _sessionId);
     
     // 🎧 Initialize Global Notification Captain
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -277,7 +280,12 @@ class _MyHomePageState extends State<MyHomePage> {
               const SizedBox(height: 36),
               ElevatedButton.icon(
                 onPressed: () async {
-                  await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).update({'isOpen': true});
+                  debugPrint("🟢 [Manual Toggle] Going online via button. SessionId: $_sessionId");
+                  await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).update({
+                    'isOpen': true,
+                    'activeSessionId': _sessionId,
+                    'lastActive': FieldValue.serverTimestamp(),
+                  });
                 },
                 icon: const Icon(Icons.power_settings_new_rounded),
                 label: const Text("GO ONLINE NOW", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
@@ -309,16 +317,21 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(const Duration(seconds: 8), (timer) async {
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 15), (timer) async {
       try {
-        await FirebaseFirestore.instance
-            .collection('shops')
-            .doc(widget.user.uid)
-            .update({
-          'lastActive': FieldValue.serverTimestamp(),
-        });
+        final bool isOnline = shopData?['isOpen'] == true;
+        if (isOnline) {
+          debugPrint("💓 [Heartbeat] Shop is online, sending heartbeat for session: $_sessionId");
+          await FirebaseFirestore.instance
+              .collection('shops')
+              .doc(widget.user.uid)
+              .update({
+            'lastActive': FieldValue.serverTimestamp(),
+            'activeSessionId': _sessionId,
+          });
+        }
       } catch (e) {
-        debugPrint("Heartbeat update failed: $e");
+        debugPrint("❌ [Heartbeat] Update failed: $e");
       }
     });
   }
@@ -477,7 +490,18 @@ class _MyHomePageState extends State<MyHomePage> {
                             value: isOnline,
                             activeColor: Colors.green,
                             onChanged: (val) async {
-                              await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).update({'isOpen': val});
+                              debugPrint("🔄 [Drawer Switch] Toggled to: $val. SessionId: $_sessionId");
+                              if (val) {
+                                await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).update({
+                                  'isOpen': true,
+                                  'activeSessionId': _sessionId,
+                                  'lastActive': FieldValue.serverTimestamp(),
+                                });
+                              } else {
+                                await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).update({
+                                  'isOpen': false,
+                                });
+                              }
                             },
                           ),
                         ],
@@ -507,7 +531,18 @@ class _MyHomePageState extends State<MyHomePage> {
                                   value: isOnline,
                                   activeColor: Colors.green,
                                   onChanged: (val) async {
-                                    await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).update({'isOpen': val});
+                                    debugPrint("🔄 [AppBar Switch] Toggled to: $val. SessionId: $_sessionId");
+                                    if (val) {
+                                      await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).update({
+                                        'isOpen': true,
+                                        'activeSessionId': _sessionId,
+                                        'lastActive': FieldValue.serverTimestamp(),
+                                      });
+                                    } else {
+                                      await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).update({
+                                        'isOpen': false,
+                                      });
+                                    }
                                   },
                                 ),
                               ],
