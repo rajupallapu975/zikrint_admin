@@ -37,5 +37,10 @@ service cloud.firestore {
         allow read, write: if true;
       }
     }
+
+    // Allow any user to read app_config
+    match /app_config/{document} {
+      allow read: if true;
+    }
   }
 }
