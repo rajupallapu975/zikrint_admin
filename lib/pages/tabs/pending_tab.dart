@@ -22,9 +22,7 @@ class PendingTab extends StatefulWidget {
   State<PendingTab> createState() => _PendingTabState();
 }
 
-class _PendingTabState extends State<PendingTab> with AutomaticKeepAliveClientMixin<PendingTab> {
-  @override
-  bool get wantKeepAlive => true;
+class _PendingTabState extends State<PendingTab> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Set<String> _expandedBatches = {};
 
@@ -103,7 +101,6 @@ class _PendingTabState extends State<PendingTab> with AutomaticKeepAliveClientMi
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(

@@ -14,13 +14,9 @@ class HistoryTab extends StatefulWidget {
   State<HistoryTab> createState() => _HistoryTabState();
 }
 
-class _HistoryTabState extends State<HistoryTab> with AutomaticKeepAliveClientMixin<HistoryTab> {
-  @override
-  bool get wantKeepAlive => true;
-
+class _HistoryTabState extends State<HistoryTab> {
   @override
   Widget build(BuildContext context) {
-    super.build(context);
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(

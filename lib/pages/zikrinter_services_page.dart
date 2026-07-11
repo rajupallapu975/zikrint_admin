@@ -20,10 +20,7 @@ class ZikrinterServicesPage extends StatefulWidget {
   State<ZikrinterServicesPage> createState() => _ZikrinterServicesPageState();
 }
 
-class _ZikrinterServicesPageState extends State<ZikrinterServicesPage> with AutomaticKeepAliveClientMixin<ZikrinterServicesPage> {
-  @override
-  bool get wantKeepAlive => true;
-
+class _ZikrinterServicesPageState extends State<ZikrinterServicesPage> {
   bool _autoOpened = false;
 
   List<dynamic> _services = [];
@@ -129,7 +126,6 @@ class _ZikrinterServicesPageState extends State<ZikrinterServicesPage> with Auto
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(

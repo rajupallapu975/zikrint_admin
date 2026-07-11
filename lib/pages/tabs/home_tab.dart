@@ -29,9 +29,7 @@ class HomeTab extends StatefulWidget {
   State<HomeTab> createState() => _HomeTabState();
 }
 
-class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin<HomeTab> {
-  @override
-  bool get wantKeepAlive => true;
+class _HomeTabState extends State<HomeTab> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = "";
@@ -73,7 +71,6 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin<Ho
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
     final shopRef = _firestore.collection('shops').doc(widget.user.uid);
     final size = MediaQuery.of(context).size;
     final isDesktop = size.width > 900;
