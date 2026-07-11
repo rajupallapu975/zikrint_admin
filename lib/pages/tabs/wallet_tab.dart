@@ -14,7 +14,10 @@ class WalletTab extends StatefulWidget {
   State<WalletTab> createState() => _WalletTabState();
 }
 
-class _WalletTabState extends State<WalletTab> {
+class _WalletTabState extends State<WalletTab> with AutomaticKeepAliveClientMixin<WalletTab> {
+  @override
+  bool get wantKeepAlive => true;
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   void _showWithdrawalForm(double currentBalance, Map<String, dynamic> shopData) {
@@ -324,6 +327,7 @@ class _WalletTabState extends State<WalletTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final shopRef = _firestore.collection('shops').doc(widget.user.uid);
     return Scaffold(
       backgroundColor: AppColors.background,
