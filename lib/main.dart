@@ -320,7 +320,16 @@ class _MyHomePageState extends State<MyHomePage> {
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 15), (timer) async {
       try {
         final bool isOnline = shopData?['isOpen'] == true;
+        final String? dbSessionId = shopData?['activeSessionId']?.toString();
+        
         if (isOnline) {
+          if (dbSessionId != null && dbSessionId != _sessionId) {
+            debugPrint("⚠️ Heartbeat mismatch (DB: $dbSessionId, Local: $_sessionId). Cancelling periodic timer.");
+            _heartbeatTimer?.cancel();
+            _heartbeatTimer = null;
+            return;
+          }
+
           debugPrint("💓 [Heartbeat] Shop is online, sending heartbeat for session: $_sessionId");
           await FirebaseFirestore.instance
               .collection('shops')
@@ -336,8 +345,6 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-
-
   void _listenToShopData() {
     _shopSubscription = FirebaseFirestore.instance
         .collection('shops')
@@ -347,6 +354,29 @@ class _MyHomePageState extends State<MyHomePage> {
       if (mounted) {
         shopData = doc.data();
         _updateConfigurationStatus();
+        
+        final bool isOnline = shopData?['isOpen'] == true;
+        final String? dbSessionId = shopData?['activeSessionId']?.toString();
+
+        if (isOnline) {
+          if (dbSessionId == _sessionId || dbSessionId == null) {
+            if (_heartbeatTimer == null) {
+              _startHeartbeat();
+            }
+          } else {
+            if (_heartbeatTimer != null) {
+              debugPrint("⚠️ Another session ($dbSessionId) is active. Stopping heartbeat for session $_sessionId.");
+              _heartbeatTimer?.cancel();
+              _heartbeatTimer = null;
+            }
+          }
+        } else {
+          if (_heartbeatTimer != null) {
+            _heartbeatTimer?.cancel();
+            _heartbeatTimer = null;
+          }
+        }
+
         setState(() {
           _initializePages();
           _isLoading = false;

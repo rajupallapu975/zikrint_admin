@@ -16,13 +16,32 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
   console.log('[firebase-messaging-sw.js] Background Message received: ', payload);
-  const notificationTitle = payload.notification.title || "Zikrint Order Update";
+
+  // Messages WITH a `notification` block are displayed automatically by the
+  // Firebase SDK — showing them here too creates duplicate notifications.
+  if (payload.notification) return;
+
+  // Data-only messages: build the notification ourselves.
+  const data = payload.data || {};
+  const notificationTitle = data.title || "Zikrint Order Update";
   const notificationOptions = {
-    body: payload.notification.body || "A new order requires your attention.",
+    body: data.body || "A new order requires your attention.",
     icon: '/icons/Icon-192.png',
     badge: '/favicon.png',
-    data: payload.data
+    data: data,
   };
-
   return self.registration.showNotification(notificationTitle, notificationOptions);
+});
+
+// 🎯 Focus/open the dashboard when the shopkeeper taps the notification
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      for (const client of windowClients) {
+        if ('focus' in client) return client.focus();
+      }
+      if (clients.openWindow) return clients.openWindow('/');
+    })
+  );
 });
