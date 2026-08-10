@@ -6,6 +6,7 @@ import '../models/order_model.dart';
 import '../services/printer_service.dart';
 import '../utils/app_colors.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class OrderDetailsPage extends StatefulWidget {
@@ -19,6 +20,31 @@ class OrderDetailsPage extends StatefulWidget {
 }
 
 class _OrderDetailsPageState extends State<OrderDetailsPage> {
+  Future<void> _updateOrderStatusToPrinting() async {
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      final xeroxRef = FirebaseFirestore.instance.collection('xerox_orders').doc(widget.order.id);
+      batch.update(xeroxRef, {
+        'orderStatus': 'printing',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      if (widget.shopId.isNotEmpty) {
+        final shopOrderRef = FirebaseFirestore.instance
+            .collection('shops')
+            .doc(widget.shopId)
+            .collection('orders')
+            .doc(widget.order.id);
+        batch.update(shopOrderRef, {
+          'orderStatus': 'printing',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+      debugPrint("✅ Firestore order status updated to 'printing' for order: ${widget.order.id}");
+    } catch (e) {
+      debugPrint("⚠️ Order status update error: $e");
+    }
+  }
 
   Future<void> _handlePrint() async {
     final printerService = Provider.of<PrinterService>(context, listen: false);
@@ -49,20 +75,31 @@ class _OrderDetailsPageState extends State<OrderDetailsPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Status Badge
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: widget.order.orderStatus == 'completed' ? Colors.grey.withValues(alpha: 0.1) : AppColors.error.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                widget.order.orderStatus.toUpperCase(),
-                style: GoogleFonts.inter(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                  color: widget.order.orderStatus == 'completed' ? Colors.grey : AppColors.error,
-                ),
-              ),
+            Builder(
+              builder: (context) {
+                final statusText = widget.order.orderStatus.toLowerCase().trim();
+                Color badgeColor = AppColors.primaryBlue;
+                if (statusText == 'completed' || statusText == 'order completed' || statusText == 'printing completed') {
+                  badgeColor = Colors.green;
+                } else if (statusText == 'printing') {
+                  badgeColor = Colors.orange;
+                }
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: badgeColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    widget.order.orderStatus.toUpperCase(),
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                      color: badgeColor,
+                    ),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 16),
             Text(
@@ -109,6 +146,9 @@ class _OrderDetailsPageState extends State<OrderDetailsPage> {
                         onPressed: () async {
                           if (url.isNotEmpty) {
                             try {
+                              // 🖨️ Mark order status as 'printing' in Firestore when download is initiated by shopkeeper
+                              await _updateOrderStatusToPrinting();
+
                               final backendUrl = dotenv.env['BACKEND_URL'] ?? 'https://zikrint.duckdns.org';
                               
                               String cleanExt = "pdf";

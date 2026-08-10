@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 class AppColors {
   // Brand Colors (Strict from Logo)
-  static const Color primaryBlue = Color(0xFF007BFF);  // From "INK"
+  static const Color primaryBlue = Color(0xFF1535CC);  // Brand blue (logo color)
   static const Color primaryBlack = Color(0xFF1A1A1A); // From "THINK"
   
   // Neutral Colors

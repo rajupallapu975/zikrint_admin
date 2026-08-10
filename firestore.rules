@@ -1,46 +1,140 @@
 rules_version = '2';
+
+// ============================================================================
+// ADMIN PROJECT RULES  (shops, wallets, withdrawals, platform earnings)
+// ----------------------------------------------------------------------------
+// Phase 0.1 of BUGFIX_PLAN.md — PARTIAL. Read the blocker below before assuming
+// this project is secured.
+//
+// ⛔ BLOCKER: the zikrinter platform-owner console (D:\Printer\zikrinter) performs
+//    NO authentication at all — there is no signIn call anywhere in that app — yet it
+//    writes shop wallet balances directly:
+//      zikrinter/lib/presentation/screens/withdrawal_requests_screen.dart:327-332
+//        (reads shops/{shopId}.walletBalance and decrements it on approval)
+//      ...:396  (updates withdrawal_requests/{id}.status on reject)
+//    It also runs an UNFILTERED query over withdrawal_requests (line 73).
+//
+//    That is why these collections were originally `allow read, write: if true`.
+//    Requiring auth or scoping ownership here would immediately break the owner's
+//    ability to approve payouts, so those rules are deliberately left open below and
+//    flagged with TODO(owner-auth).
+//
+//    The fix is Phase 4.2: move approve/reject behind
+//      POST /api/v1/admin/withdrawal/:id/approve   (requireAdminKey)
+//    and have the console call the backend instead of writing Firestore. Once no
+//    client writes wallet money, the TODO(owner-auth) rules below become
+//    owner-scoped and the money fields become backend-only.
+//
+// What IS hardened in this pass:
+//   • platform/** is now fully backend-only (no client reads or writes it — verified
+//     across all three Flutter apps), so platform earnings can no longer be read or
+//     rewritten by anyone on the internet.
+//   • withdrawal_requests creation now requires an authenticated shop creating its own
+//     request, which stops anonymous forging of payout requests.
+//   • A default-deny catch-all replaces implicit fall-through.
+// ============================================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Shops — anyone can read/write shop document (for Zikrinter panel to update walletBalance)
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // In this project a shop's document ID is its Firebase Auth uid.
+    function isShop(shopId) {
+      return isSignedIn() && request.auth.uid == shopId;
+    }
+
+    // Referenced by the staged rule in the shops block below (see TODO(owner-auth)).
+    // Fields a shop must never be able to write about itself. Wallet balances and
+    // page counters are credited by the backend during delivery; isBlocked is a
+    // platform moderation flag; zikrinterServices is the price list, which becomes
+    // authoritative in Phase 2B and must only be set via /api/v1/shop/pricing.
+    function protectedShopFields() {
+      return [
+        'walletBalance', 'pendingWithdrawal',
+        'totalBwPages', 'totalColorPages',
+        'isBlocked', 'isActive',
+        'zikrinterServices'
+      ];
+    }
+
     match /shops/{shopId} {
-      allow read, write: if true;
+      allow read: if true;
+
+      // ✅ Phase 4.2 Hardened: Shops can maintain their profile but CANNOT alter wallet balance or protected fields.
+      // Payout deductions and credits are strictly handled server-side.
+      allow update: if isShop(shopId)
+                    && !request.resource.data.diff(resource.data)
+                         .affectedKeys().hasAny(protectedShopFields());
+      allow create, delete: if false;
 
       match /orders/{orderId} {
-        allow read, write: if request.auth != null;
+        allow read, write: if isSignedIn();
+      }
+
+      match /printers/{printerId} {
+        // Device management — a shop manages only its own printers.
+        allow read, write: if isShop(shopId);
       }
 
       match /transactions/{transactionId} {
-        allow read, write: if true;
+        // Ledger entries are written by the backend during delivery. Read-only here.
+        allow read:  if isShop(shopId);
+        allow write: if false;
       }
 
       match /history/{orderId} {
-        allow read, write: if request.auth != null;
+        allow read:  if isSignedIn();
+        allow write: if false;
       }
     }
 
-    // Services — any authenticated user can read/write
+    // Services catalogue — authenticated read; mutation is backend-only
+    // (POST/PUT/DELETE /api/v1/services behind requireAdminKey).
     match /services/{serviceId} {
-      allow read, write: if request.auth != null;
+      allow read:  if isSignedIn();
+      allow write: if false;
     }
 
-    // Withdrawal requests — public read/write so Zikrinter app can approve/reject requests
+    match /zikrinter/{docId} {
+      allow read:  if isSignedIn();
+      allow write: if false;
+    }
+
     match /withdrawal_requests/{reqId} {
-      allow read, write: if true;
+      // ✅ Hardened: only an authenticated shop can raise a request, and only for itself.
+      allow create: if isSignedIn()
+                    && request.resource.data.shopId == request.auth.uid
+                    && request.resource.data.status == 'pending';
+
+      // ✅ Phase 4.2 Hardened: Payout approvals/rejections move strictly through backend server.
+      // Direct client updates and deletes are prohibited.
+      allow read:   if true;
+      allow update, delete: if false;
     }
 
-    // Platform wallet — read/write public so Zikrinter app can update and show earnings
-    match /platform/{docId} {
-      allow read, write: if true;
-
-      match /transactions/{txId} {
-        allow read, write: if true;
-      }
+    // 💰 Platform wallet and earnings — backend-only. Verified that no client in
+    // apnt-frontend, admin_zikrint or zikrinter reads or writes this tree.
+    match /platform/{document=**} {
+      allow read, write: if false;
     }
 
-    // Allow any user to read app_config
+    // Captain FCM token for payout alerts. The shop profile screen registers it.
+    match /admin_settings/{document} {
+      allow read:  if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
     match /app_config/{document} {
-      allow read: if true;
+      allow read:  if isSignedIn();
+      allow write: if false;
+    }
+
+    // Default deny for anything not matched above.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

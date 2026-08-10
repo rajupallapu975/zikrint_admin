@@ -1,10 +1,4 @@
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart';
-import '../zikrinter_services_page.dart';
-// import 'package:firebase_messaging/firebase_messaging.dart'; // Unused
-// import 'package:flutter/foundation.dart'; // Unnecessary
-
-import '../image_viewer_page.dart';
 import 'package:flutter/material.dart';
 import '../../models/app_user.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -13,12 +7,7 @@ import '../../models/order_model.dart';
 import '../../services/api_service.dart';
 import '../../utils/app_colors.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../order_details_page.dart';
-import '../../services/printer_service.dart';
-import 'package:provider/provider.dart';
-import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'dart:convert';
 
 class HomeTab extends StatefulWidget {
   final AppUser user;
@@ -62,6 +51,42 @@ class _HomeTabState extends State<HomeTab> {
     }
   }
 
+  Future<void> _updateOrderStatusToPrinting(String orderId) async {
+    try {
+      // 1. Update Customer DB ('psfc') where customer xerox_orders live
+      try {
+        final psfcFirestore = FirebaseFirestore.instanceFor(app: Firebase.app('psfc'));
+        await psfcFirestore.collection('xerox_orders').doc(orderId).update({
+          'orderStatus': 'printing',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        debugPrint("✅ [psfc] Customer DB order status updated to 'printing' for: $orderId");
+      } catch (e) {
+        debugPrint("⚠️ Could not update psfc xerox_orders: $e");
+      }
+
+      // 2. Update Admin DB ('shops/{shopId}/orders/{orderId}')
+      if (widget.user.uid.isNotEmpty) {
+        try {
+          await FirebaseFirestore.instance
+              .collection('shops')
+              .doc(widget.user.uid)
+              .collection('orders')
+              .doc(orderId)
+              .update({
+            'orderStatus': 'printing',
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          debugPrint("✅ [admin] Shop DB order status updated to 'printing' for: $orderId");
+        } catch (e) {
+          debugPrint("⚠️ Could not update admin shop order: $e");
+        }
+      }
+    } catch (e) {
+      debugPrint("⚠️ Order status update error: $e");
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -71,7 +96,9 @@ class _HomeTabState extends State<HomeTab> {
 
   @override
   Widget build(BuildContext context) {
-    final shopRef = _firestore.collection('shops').doc(widget.user.uid);
+    final bool isReviewerAccount = (widget.user.email ?? '').toLowerCase().contains('reviewer');
+    final String effectiveShopId = isReviewerAccount ? 'reviewer_shop_store' : widget.user.uid;
+    final shopRef = _firestore.collection('shops').doc(effectiveShopId);
     final size = MediaQuery.of(context).size;
     final isDesktop = size.width > 900;
 
@@ -109,11 +136,25 @@ class _HomeTabState extends State<HomeTab> {
                       
                       final allDocs = snapshot.data?.docs.map((doc) => OrderModel.fromFirestore(doc)).toList() ?? [];
 
-                      // 🛠️ ROBUST IN-MEMORY FILTERING
+                      // 🛠️ ROBUST IN-MEMORY FILTERING & REVIEWER ORDER ISOLATION
+                      final bool isCurrentShopReviewer = (widget.user.email ?? '').toLowerCase().contains('reviewer');
+
                       var orders = allDocs.where((o) {
-                        final String orderStatus = (o.orderStatus ?? '').toLowerCase().trim();
-                        final String paymentStatus = (o.paymentStatus ?? '').toLowerCase().trim();
+                        final String orderStatus = o.orderStatus.toLowerCase().trim();
+                        final String paymentStatus = o.paymentStatus.toLowerCase().trim();
                         
+                        final bool isReviewerOrder = 
+                          o.customerName.toLowerCase().contains('reviewer') ||
+                          (o.customId != null && o.customId!.toLowerCase().contains('reviewer')) ||
+                          (o.id.toLowerCase().contains('reviewer'));
+
+                        // Reviewer test orders only shown on reviewer shop email; hidden for all other shops
+                        if (isCurrentShopReviewer) {
+                          if (!isReviewerOrder) return false;
+                        } else {
+                          if (isReviewerOrder) return false;
+                        }
+
                         // 1. Must be Paid
                         final bool isPaid = paymentStatus == 'done' || paymentStatus == 'paid';
                         
@@ -129,14 +170,7 @@ class _HomeTabState extends State<HomeTab> {
                       }).toList();
 
                       // 🛠️ SORT IN-MEMORY: First In, First Out (Ascending)
-                      orders.sort((a, b) {
-                        final aT = a.timestamp;
-                        final bT = b.timestamp;
-                        if (aT == null && bT == null) return 0;
-                        if (aT == null) return 1;
-                        if (bT == null) return -1;
-                        return aT.compareTo(bT);
-                      });
+                      orders.sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
                       
                       Map<String, List<OrderModel>> grouped = {};
@@ -549,12 +583,8 @@ class _HomeTabState extends State<HomeTab> {
 
               final scaffoldMessenger = ScaffoldMessenger.of(context);
               final navigator = Navigator.of(context);
-              final String firstOrderId = items.isNotEmpty ? items.first.id : "";
               
-              debugPrint("🔘 [ADMIN] Double Tick Clicked for Order: $mainId (DocID: $firstOrderId)");
-
-              if (firstOrderId.isEmpty) {
-                debugPrint("⚠️ [ADMIN] Error: No Order ID found for batch $mainId");
+              if (items.isEmpty) {
                 setState(() => _isSubmitting = false);
                 navigator.pop();
                 return;
@@ -567,9 +597,20 @@ class _HomeTabState extends State<HomeTab> {
                 builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.white)),
               );
 
-              debugPrint("🛰️ [ADMIN] Sending 'Mark Printed' Request to Backend for $firstOrderId...");
-              final String? errorMsg = await ApiService.markAsPrinted(firstOrderId, widget.user.uid);
-              debugPrint("🔌 [ADMIN] Backend Response: ${errorMsg == null ? 'SUCCESS' : 'FAILURE: $errorMsg'}");
+              debugPrint("🛰️ [ADMIN] Sending 'Mark Printed' Request to Backend for batch $mainId (${items.length} items)...");
+              
+              bool allSuccess = true;
+              String? lastError;
+
+              for (final order in items) {
+                final String? errorMsg = await ApiService.markAsPrinted(order.id, widget.user.uid);
+                if (errorMsg != null) {
+                  allSuccess = false;
+                  lastError = errorMsg;
+                }
+              }
+
+              debugPrint("🔌 [ADMIN] Backend Response for batch $mainId: ${allSuccess ? 'SUCCESS' : 'FAILURE: $lastError'}");
               
               if (mounted) {
                 navigator.pop(); // Close loading spinner (top of stack)
@@ -578,7 +619,7 @@ class _HomeTabState extends State<HomeTab> {
 
               if (mounted) setState(() => _isSubmitting = false);
 
-              if (errorMsg == null) {
+              if (allSuccess) {
                 debugPrint("✨ [ADMIN] UI Updating: Batch $mainId marked as completed locally.");
                 if (mounted) setState(() => _completedBatches.add(mainId));
                 if (mounted) {
@@ -590,11 +631,11 @@ class _HomeTabState extends State<HomeTab> {
                   ));
                 }
               } else {
-                debugPrint("❌ [ADMIN] Sync failed for $firstOrderId: $errorMsg");
+                debugPrint("❌ [ADMIN] Sync failed for batch $mainId: $lastError");
                 if (mounted) {
                   scaffoldMessenger.clearSnackBars();
                   scaffoldMessenger.showSnackBar(SnackBar(
-                    content: Text("❌ Sync Failed: $errorMsg"),
+                    content: Text("❌ Sync Failed: $lastError"),
                     backgroundColor: AppColors.error,
                   ));
                 }
@@ -643,10 +684,50 @@ class _HomeTabState extends State<HomeTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-               if (order.orderStatus == 'printing completed')
-                  const Icon(Icons.check_circle_rounded, color: Colors.green, size: 18),
+              Text(
+                "FILE $subIdx OF ${order.fileUrls.isNotEmpty ? order.fileUrls.length : 1}",
+                style: GoogleFonts.manrope(fontSize: 10, fontWeight: FontWeight.w900, color: AppColors.textTertiary, letterSpacing: 1),
+              ),
+              Builder(
+                builder: (context) {
+                  final status = order.orderStatus.toLowerCase().trim();
+                  if (isCompleted || status == 'printing completed' || status == 'order completed') {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.check_circle_rounded, color: Colors.green, size: 12),
+                          const SizedBox(width: 4),
+                          Text("PRINTED", style: GoogleFonts.inter(color: Colors.green, fontSize: 10, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    );
+                  } else if (status == 'printing') {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.print_rounded, color: Colors.orange, size: 12),
+                          const SizedBox(width: 4),
+                          Text("PRINTING...", style: GoogleFonts.inter(color: Colors.orange, fontSize: 10, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    );
+                  } else {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+                      child: Text("NEW", style: GoogleFonts.inter(color: AppColors.primaryBlue, fontSize: 10, fontWeight: FontWeight.bold)),
+                    );
+                  }
+                },
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -714,6 +795,9 @@ class _HomeTabState extends State<HomeTab> {
                        
                        if (url.isNotEmpty) {
                          try {
+                           // 🖨️ Automatically mark order status as 'printing' in Firestore when download is initiated
+                           await _updateOrderStatusToPrinting(order.id);
+
                            final backendUrl = dotenv.env['BACKEND_URL'] ?? 'https://zikrint.duckdns.org';
                            
                            // 🚀 BULLETPROOF: Force clean extension detection

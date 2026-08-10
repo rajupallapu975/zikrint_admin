@@ -30,7 +30,20 @@ class _HistoryTabState extends State<HistoryTab> {
       ),
       body: Consumer<HistoryService>(
         builder: (context, service, _) {
-          final orders = service.history;
+          final bool isCurrentShopReviewer = (widget.user.email ?? '').toLowerCase().contains('reviewer');
+
+          final orders = service.history.where((o) {
+            final bool isReviewerOrder = 
+              o.customerName.toLowerCase().contains('reviewer') ||
+              (o.customId != null && o.customId!.toLowerCase().contains('reviewer')) ||
+              (o.id.toLowerCase().contains('reviewer'));
+
+            if (isCurrentShopReviewer) {
+              return isReviewerOrder;
+            } else {
+              return !isReviewerOrder;
+            }
+          }).toList();
 
           if (orders.isEmpty) {
             return Column(

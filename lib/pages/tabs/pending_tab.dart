@@ -101,6 +101,9 @@ class _PendingTabState extends State<PendingTab> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isReviewerAccount = (widget.user.email ?? '').toLowerCase().contains('reviewer');
+    final String effectiveShopId = isReviewerAccount ? 'reviewer_shop_store' : widget.user.uid;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -117,7 +120,7 @@ class _PendingTabState extends State<PendingTab> {
       body: StreamBuilder<QuerySnapshot>(
         stream: _firestore
             .collection('shops')
-            .doc(widget.user.uid)
+            .doc(effectiveShopId)
             .collection('orders')
             .where('timestamp', isGreaterThan: Timestamp.fromDate(DateTime.now().subtract(const Duration(hours: 24))))
             .orderBy('timestamp', descending: true)
@@ -128,8 +131,23 @@ class _PendingTabState extends State<PendingTab> {
 
           final allOrders = snapshot.data!.docs.map((doc) => OrderModel.fromFirestore(doc)).toList();
           
-          // 🧩 STRICT Filtering with .trim() for maximum robustness:
-          final pendingOrders = allOrders.where((o) => o.orderStatus.toLowerCase().trim() == 'printing completed').toList();
+          final bool isCurrentShopReviewer = (widget.user.email ?? '').toLowerCase().contains('reviewer');
+
+          // 🧩 STRICT Filtering & Reviewer Order Isolation:
+          final pendingOrders = allOrders.where((o) {
+            final bool isReviewerOrder = 
+              o.customerName.toLowerCase().contains('reviewer') ||
+              (o.customId != null && o.customId!.toLowerCase().contains('reviewer')) ||
+              (o.id.toLowerCase().contains('reviewer'));
+
+            if (isCurrentShopReviewer) {
+              if (!isReviewerOrder) return false;
+            } else {
+              if (isReviewerOrder) return false;
+            }
+
+            return o.orderStatus.toLowerCase().trim() == 'printing completed';
+          }).toList();
 
           return LayoutBuilder(
             builder: (context, constraints) {
@@ -341,6 +359,8 @@ class _PendingTabState extends State<PendingTab> {
     return fileWidgets;
   }
 
+
+
   Widget _buildSubOrderItem(String mainId, int subIdx, OrderModel order, {required int fileIdx, bool isCompleted = false}) {
     final fileName = order.fileNames.length > fileIdx ? order.fileNames[fileIdx] : order.fileName;
     final fileUrl = order.fileUrls.length > fileIdx ? order.fileUrls[fileIdx] : order.fileUrl;
@@ -466,6 +486,7 @@ class _PendingTabState extends State<PendingTab> {
                   onTap: () async {
                     if (fileUrl == null) return;
                     try {
+                      // 📥 Re-download file only — does not alter order status
                       final backendUrl = dotenv.env['BACKEND_URL'] ?? 'https://zikrint.duckdns.org';
                       
                       final lowUrl = fileUrl.toLowerCase();

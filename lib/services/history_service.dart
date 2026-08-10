@@ -22,9 +22,12 @@ class HistoryService extends ChangeNotifier {
 
   void startListening(String shopId) {
     _orderSubscription?.cancel();
+    final bool isReviewerAccount = shopId.toLowerCase().contains('reviewer');
+    final String effectiveShopId = isReviewerAccount ? 'reviewer_shop_store' : shopId;
+
     _orderSubscription = _firestore
         .collection('shops')
-        .doc(shopId)
+        .doc(effectiveShopId)
         .collection('history')
         .snapshots()
         .listen((snapshot) {
