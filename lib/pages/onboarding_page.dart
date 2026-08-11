@@ -13,7 +13,9 @@ import 'dart:io' show File;
 import 'package:path_provider/path_provider.dart';
 import 'package:gal/gal.dart';
 import '../utils/web_helpers/web_download.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/app_colors.dart';
+import '../widgets/map_location_picker_sheet.dart';
 
 class OnboardingPage extends StatefulWidget {
   const OnboardingPage({super.key});
@@ -32,6 +34,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
   final TextEditingController _pincodeController = TextEditingController();
   final TextEditingController _locationController = TextEditingController();
 
+  double? _latitude;
+  double? _longitude;
   TimeOfDay? _openingTime;
   TimeOfDay? _closingTime;
   bool _isLoadingLocation = false;
@@ -108,6 +112,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
         desiredAccuracy: LocationAccuracy.high,
       );
       
+      _latitude = position.latitude;
+      _longitude = position.longitude;
+
       if (!kIsWeb) {
         List<Placemark> placemarks = await placemarkFromCoordinates(
           position.latitude,
@@ -164,6 +171,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
         'isCurrentlyOpen': true,
         'pricePerBWPage': 2.0,
         'pricePerColorPage': 10.0,
+        if (_latitude != null && _longitude != null) 'latitude': _latitude,
+        if (_latitude != null && _longitude != null) 'longitude': _longitude,
+        if (_latitude != null && _longitude != null) 'location': GeoPoint(_latitude!, _longitude!),
       };
 
       await AuthService().saveShopDetails(details);
@@ -337,7 +347,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     return _buildStepContainer(
       icon: Icons.location_on_rounded,
       title: "Shop Location",
-      description: "This is crucial for local discoverability. We'll show your shop to users searching within your area.",
+      description: "This is crucial for local discoverability. Select your exact location on Google Maps or auto-detect via GPS.",
       child: Column(
         children: [
           Row(
@@ -360,6 +370,39 @@ class _OnboardingPageState extends State<OnboardingPage> {
             "Pincode",
             Icons.pin_drop_rounded,
             keyboardType: TextInputType.number,
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                final result = await MapLocationPickerSheet.show(
+                  context,
+                  initialLatitude: _latitude,
+                  initialLongitude: _longitude,
+                );
+                if (result != null) {
+                  setState(() {
+                    _latitude = result.latitude;
+                    _longitude = result.longitude;
+                    _locationController.text = result.address;
+                    if (result.pincode.isNotEmpty) {
+                      _pincodeController.text = result.pincode;
+                    }
+                  });
+                }
+              },
+              icon: const Icon(Icons.map_rounded, color: AppColors.primaryBlue),
+              label: Text(
+                _latitude != null ? "PIN SET ON MAP (TAP TO CHANGE)" : "SELECT LOCATION ON MAP 🗺️",
+                style: GoogleFonts.inter(fontWeight: FontWeight.w800, color: AppColors.primaryBlue),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: AppColors.primaryBlue, width: 1.5),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+            ),
           ),
         ],
       ),
