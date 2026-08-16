@@ -122,8 +122,6 @@ class _PendingTabState extends State<PendingTab> {
             .collection('shops')
             .doc(effectiveShopId)
             .collection('orders')
-            .where('timestamp', isGreaterThan: Timestamp.fromDate(DateTime.now().subtract(const Duration(hours: 24))))
-            .orderBy('timestamp', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}", style: const TextStyle(color: Colors.red)));
@@ -131,21 +129,7 @@ class _PendingTabState extends State<PendingTab> {
 
           final allOrders = snapshot.data!.docs.map((doc) => OrderModel.fromFirestore(doc)).toList();
           
-          final bool isCurrentShopReviewer = (widget.user.email ?? '').toLowerCase().contains('reviewer');
-
-          // 🧩 STRICT Filtering & Reviewer Order Isolation:
           final pendingOrders = allOrders.where((o) {
-            final bool isReviewerOrder = 
-              o.customerName.toLowerCase().contains('reviewer') ||
-              (o.customId != null && o.customId!.toLowerCase().contains('reviewer')) ||
-              (o.id.toLowerCase().contains('reviewer'));
-
-            if (isCurrentShopReviewer) {
-              if (!isReviewerOrder) return false;
-            } else {
-              if (isReviewerOrder) return false;
-            }
-
             return o.orderStatus.toLowerCase().trim() == 'printing completed';
           }).toList();
 
@@ -424,32 +408,45 @@ class _PendingTabState extends State<PendingTab> {
           Wrap(
             spacing: 6,
             runSpacing: 6,
-            children: [
-              _chipIf(order.getIsColor(fileIdx), Icons.palette, "COLOR"),
-              _chipIf(!order.getIsColor(fileIdx), Icons.contrast, "B/W"),
-              _chipIf(order.getIsDuplex(fileIdx), Icons.copy_all, "2-SIDED"),
-              _chipIf(!order.getIsDuplex(fileIdx), Icons.description, "1-SIDE"),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.background, border: Border.all(color: AppColors.border.withOpacity(0.4)), borderRadius: BorderRadius.circular(4)
-                ),
-                child: Text(
-                  "${order.getPageCount(fileIdx)} ${order.getPageCount(fileIdx) == 1 ? 'PAGE' : 'PAGES'}", 
-                  style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.textSecondary)
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.background, border: Border.all(color: AppColors.border.withOpacity(0.4)), borderRadius: BorderRadius.circular(4)
-                ),
-                child: Text(
-                  "${order.getCopies(fileIdx)} COPY", 
-                  style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.textSecondary)
-                ),
-              ),
-            ],
+            children: (() {
+              final isPassport = order.serviceName?.toLowerCase().contains('passport') == true ||
+                                 order.serviceType?.toLowerCase().contains('passport') == true;
+              if (isPassport) {
+                final package = (order.paperSize ?? order.customParameters['Package Selected'] ?? '8 Photos').toString().toUpperCase();
+                final label = order.copies > 1 ? "$package x ${order.copies} SETS" : package;
+                return [
+                  _chipIf(true, Icons.photo_library_rounded, "PASSPORT PHOTO"),
+                  _chipIf(true, Icons.collections_rounded, label),
+                ];
+              } else {
+                return [
+                  _chipIf(order.getIsColor(fileIdx), Icons.palette, "COLOR"),
+                  _chipIf(!order.getIsColor(fileIdx), Icons.contrast, "B/W"),
+                  _chipIf(order.getIsDuplex(fileIdx), Icons.copy_all, "2-SIDED"),
+                  _chipIf(!order.getIsDuplex(fileIdx), Icons.description, "1-SIDE"),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.background, border: Border.all(color: AppColors.border.withOpacity(0.4)), borderRadius: BorderRadius.circular(4)
+                    ),
+                    child: Text(
+                      "${order.getPageCount(fileIdx)} ${order.getPageCount(fileIdx) == 1 ? 'PAGE' : 'PAGES'}", 
+                      style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.textSecondary)
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.background, border: Border.all(color: AppColors.border.withOpacity(0.4)), borderRadius: BorderRadius.circular(4)
+                    ),
+                    child: Text(
+                      "${order.getCopies(fileIdx)} COPY", 
+                      style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.textSecondary)
+                    ),
+                  ),
+                ];
+              }
+            })(),
           ),
           const SizedBox(height: 12),
           Row(

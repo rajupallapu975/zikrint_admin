@@ -187,6 +187,7 @@ class _MyHomePageState extends State<MyHomePage> {
     _sessionId = "${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999999)}";
 
     _pageController = PageController(initialPage: _selectedIndex);
+    _setShopOnlineOnLaunch();
     _listenToShopData();
     _startHeartbeat();
     _checkDocumentsXeroxConfig();
@@ -210,6 +211,19 @@ class _MyHomePageState extends State<MyHomePage> {
         }
       });
     });
+  }
+
+  Future<void> _setShopOnlineOnLaunch() async {
+    try {
+      debugPrint("🟢 [Auto Launch] Opening Admin tab -> Setting shop ONLINE. SessionId: $_sessionId");
+      await FirebaseFirestore.instance.collection('shops').doc(widget.user.uid).set({
+        'isOpen': true,
+        'activeSessionId': _sessionId,
+        'lastActive': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint("⚠️ Auto set shop online on launch failed: $e");
+    }
   }
 
   void _initializePages() {

@@ -181,11 +181,31 @@ class _OrderDetailsPageState extends State<OrderDetailsPage> {
             }),
 
             const SizedBox(height: 32),
-            _buildConfigRow(Icons.description_outlined, "Paper Size", (widget.order.paperSize ?? "A4").toUpperCase()),
+            _buildConfigRow(
+              Icons.description_outlined,
+              (widget.order.serviceName?.toLowerCase().contains('passport') == true ||
+               widget.order.serviceType?.toLowerCase().contains('passport') == true)
+                  ? "Photo Package"
+                  : "Paper Size",
+              (widget.order.paperSize ?? "A4").toUpperCase(),
+            ),
             _buildConfigRow(Icons.palette_outlined, "Print Type", widget.order.colorPages > 0 ? "Color" : "Black & White"),
-            _buildConfigRow(Icons.landscape_rounded, "Orientation", widget.order.orientation.toUpperCase()),
-            _buildConfigRow(Icons.filter_none_rounded, "Copies", "${widget.order.copies} Set(s)"),
-            _buildConfigRow(Icons.chrome_reader_mode_outlined, "Sides", widget.order.isDuplex ? "Double-Sided" : "Single-Sided"),
+            if (!(widget.order.serviceName?.toLowerCase().contains('passport') == true ||
+                  widget.order.serviceType?.toLowerCase().contains('passport') == true)) ...[
+              _buildConfigRow(Icons.landscape_rounded, "Orientation", widget.order.orientation.toUpperCase()),
+            ],
+            _buildConfigRow(
+              Icons.filter_none_rounded,
+              (widget.order.serviceName?.toLowerCase().contains('passport') == true ||
+               widget.order.serviceType?.toLowerCase().contains('passport') == true)
+                  ? "Copies (Sets)"
+                  : "Copies",
+              "${widget.order.copies} Set(s)",
+            ),
+            if (!(widget.order.serviceName?.toLowerCase().contains('passport') == true ||
+                  widget.order.serviceType?.toLowerCase().contains('passport') == true)) ...[
+              _buildConfigRow(Icons.chrome_reader_mode_outlined, "Sides", widget.order.isDuplex ? "Double-Sided" : "Single-Sided"),
+            ],
             if (widget.order.generateCoverPage) ...[
               _buildConfigRow(Icons.auto_awesome_motion_outlined, "Cover Page", "Enabled"),
               _buildConfigRow(Icons.monetization_on_outlined, "Cover Page Charge", "₹${widget.order.coverPageCharge.toStringAsFixed(0)}"),

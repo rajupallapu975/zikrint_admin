@@ -137,26 +137,14 @@ class _HomeTabState extends State<HomeTab> {
                       final allDocs = snapshot.data?.docs.map((doc) => OrderModel.fromFirestore(doc)).toList() ?? [];
 
                       // 🛠️ ROBUST IN-MEMORY FILTERING & REVIEWER ORDER ISOLATION
-                      final bool isCurrentShopReviewer = (widget.user.email ?? '').toLowerCase().contains('reviewer');
+                      final bool isCurrentShopReviewer = (widget.user.email ?? '').toLowerCase().contains('reviewer') || effectiveShopId == 'reviewer_shop_store';
 
                       var orders = allDocs.where((o) {
                         final String orderStatus = o.orderStatus.toLowerCase().trim();
                         final String paymentStatus = o.paymentStatus.toLowerCase().trim();
                         
-                        final bool isReviewerOrder = 
-                          o.customerName.toLowerCase().contains('reviewer') ||
-                          (o.customId != null && o.customId!.toLowerCase().contains('reviewer')) ||
-                          (o.id.toLowerCase().contains('reviewer'));
-
-                        // Reviewer test orders only shown on reviewer shop email; hidden for all other shops
-                        if (isCurrentShopReviewer) {
-                          if (!isReviewerOrder) return false;
-                        } else {
-                          if (isReviewerOrder) return false;
-                        }
-
-                        // 1. Must be Paid
-                        final bool isPaid = paymentStatus == 'done' || paymentStatus == 'paid';
+                        // 1. Must be Paid / Active
+                        final bool isPaid = paymentStatus == 'done' || paymentStatus == 'paid' || paymentStatus == 'active' || paymentStatus == 'pending';
                         
                         // 2. Must not be completed or failed
                         final bool isActive = 
@@ -760,12 +748,25 @@ class _HomeTabState extends State<HomeTab> {
           Wrap(
             spacing: 6,
             runSpacing: 6,
-            children: [
-              _requirementBadge(order.getIsColor(fileIdx) ? "COLOR" : "B&W", order.getIsColor(fileIdx) ? Colors.orange : Colors.grey),
-              _requirementBadge(order.getIsDuplex(fileIdx) ? "2-SIDED" : "1-SIDED", Colors.blue),
-              _requirementBadge("${order.getCopies(fileIdx)} COPIES", Colors.purple),
-              _requirementBadge(order.getOrientation(fileIdx).toUpperCase(), Colors.teal),
-            ],
+            children: (() {
+              final isPassport = order.serviceName?.toLowerCase().contains('passport') == true ||
+                                 order.serviceType?.toLowerCase().contains('passport') == true;
+              if (isPassport) {
+                final package = (order.paperSize ?? order.customParameters['Package Selected'] ?? '8 Photos').toString().toUpperCase();
+                final label = order.copies > 1 ? "$package x ${order.copies} SETS" : package;
+                return [
+                  _requirementBadge("PASSPORT PHOTO", Colors.purple),
+                  _requirementBadge(label, Colors.orange),
+                ];
+              } else {
+                return [
+                  _requirementBadge(order.getIsColor(fileIdx) ? "COLOR" : "B&W", order.getIsColor(fileIdx) ? Colors.orange : Colors.grey),
+                  _requirementBadge(order.getIsDuplex(fileIdx) ? "2-SIDED" : "1-SIDED", Colors.blue),
+                  _requirementBadge("${order.getCopies(fileIdx)} COPIES", Colors.purple),
+                  _requirementBadge(order.getOrientation(fileIdx).toUpperCase(), Colors.teal),
+                ];
+              }
+            })(),
           ),
           const SizedBox(height: 12),
           Row(

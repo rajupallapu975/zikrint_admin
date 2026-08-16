@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
-import '../../utils/app_colors.dart';
+import '../utils/app_colors.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../main.dart';
+import '../models/app_user.dart';
+import 'onboarding_page.dart';
 
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
@@ -158,7 +161,27 @@ class LoginPage extends StatelessWidget {
             onPressed: () async {
               final user = await authService.signInWithGoogle();
               if (user != null && context.mounted) {
-                 // Navigation handled by AuthWrapper
+                final isOnboarded = await authService.isUserOnboarded();
+                if (context.mounted) {
+                  if (isOnboarded) {
+                    Navigator.of(context).pushReplacement(
+                      MaterialPageRoute(
+                        builder: (context) => MyHomePage(
+                          user: AppUser(
+                            uid: user.uid,
+                            displayName: user.displayName,
+                            email: user.email,
+                            photoURL: user.photoURL,
+                          ),
+                        ),
+                      ),
+                    );
+                  } else {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (context) => const OnboardingPage()),
+                    );
+                  }
+                }
               }
             },
             icon: Image.asset('assets/images/google_logo.png', height: 22),
@@ -183,6 +206,15 @@ class LoginPage extends StatelessWidget {
               Expanded(child: Divider(color: AppColors.border)),
             ],
           ),
+          const SizedBox(height: 16),
+          TextButton.icon(
+            onPressed: () => _showEmailSignInDialog(context, authService),
+            icon: const Icon(Icons.email_outlined, size: 18, color: AppColors.primaryBlue),
+            label: Text(
+              "Sign in with Email",
+              style: GoogleFonts.inter(color: AppColors.primaryBlue, fontWeight: FontWeight.w700, fontSize: 14),
+            ),
+          ),
           const SizedBox(height: 24),
           Text(
             "By signing in, you agree to the\nZikrint Terms of Service.",
@@ -190,6 +222,128 @@ class LoginPage extends StatelessWidget {
             style: GoogleFonts.manrope(color: AppColors.textTertiary, fontSize: 12, height: 1.5),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showEmailSignInDialog(BuildContext context, AuthService authService) {
+    final emailController = TextEditingController(text: 'reviewer@zikrint.app');
+    final passwordController = TextEditingController();
+    bool isLoading = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            title: Row(
+              children: [
+                const Icon(Icons.mark_email_read_rounded, color: AppColors.primaryBlue),
+                const SizedBox(width: 10),
+                Text(
+                  'Reviewer Sign In',
+                  style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Use official reviewer credentials to evaluate Zikrint Admin test mode.',
+                  style: GoogleFonts.inter(fontSize: 13, color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: emailController,
+                  decoration: const InputDecoration(
+                    labelText: 'Email Address',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.email_outlined),
+                  ),
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: passwordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Password',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.lock_outline),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('Cancel', style: GoogleFonts.inter(color: AppColors.textSecondary)),
+              ),
+              ElevatedButton(
+                onPressed: isLoading
+                    ? null
+                    : () async {
+                        setState(() => isLoading = true);
+                        try {
+                          final user = await authService.signInWithEmail(
+                            emailController.text,
+                            passwordController.text,
+                          );
+                          if (user != null && ctx.mounted) {
+                            Navigator.pop(ctx);
+                            final isOnboarded = await authService.isUserOnboarded();
+                            if (context.mounted) {
+                              if (isOnboarded) {
+                                Navigator.of(context).pushReplacement(
+                                  MaterialPageRoute(
+                                    builder: (context) => MyHomePage(
+                                      user: AppUser(
+                                        uid: user.uid,
+                                        displayName: user.displayName,
+                                        email: user.email,
+                                        photoURL: user.photoURL,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              } else {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(builder: (context) => const OnboardingPage()),
+                                );
+                              }
+                            }
+                          }
+                        } catch (e) {
+                          if (ctx.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Sign In Failed: ${e.toString()}'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        } finally {
+                          if (ctx.mounted) setState(() => isLoading = false);
+                        }
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryBlue,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: isLoading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : Text('Sign In', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -253,9 +407,7 @@ class LoginPage extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _footerSupportLink("Technical Support", "mailto:rajupallapu975@gmail.com"),
-              const SizedBox(width: 24),
-              _footerSupportLink("Business Inquiries", "tel:+919391392506"),
+              _footerSupportLink("Support", "mailto:zikrint975@gmail.com"),
             ],
           ),
           const SizedBox(height: 32),

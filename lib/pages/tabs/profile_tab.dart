@@ -14,11 +14,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:gal/gal.dart';
 import '../../utils/web_helpers/web_download.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:geolocator/geolocator.dart';
 import '../../utils/app_colors.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../widgets/map_location_picker_sheet.dart';
 
 class ProfileTab extends StatefulWidget {
   final AppUser user;
@@ -33,294 +30,6 @@ class ProfileTab extends StatefulWidget {
 class _ProfileTabState extends State<ProfileTab> {
   final ScreenshotController screenshotController = ScreenshotController();
   bool _imageError = false;
-  bool _updatingGPS = false;
-
-  Future<void> _updateGPSLocation(BuildContext context) async {
-    setState(() => _updatingGPS = true);
-    try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        throw 'Location services are disabled on your device.';
-      }
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          throw 'Location permissions are denied.';
-        }
-      }
-      if (permission == LocationPermission.deniedForever) {
-        throw 'Location permissions are permanently denied.';
-      }
-
-      Position pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      final uid = widget.user.uid;
-      await FirebaseFirestore.instance.collection('shops').doc(uid).set({
-        'latitude': pos.latitude,
-        'longitude': pos.longitude,
-        'location': GeoPoint(pos.latitude, pos.longitude),
-        'lastLocationUpdate': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("✅ GPS Coordinates updated: ${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}"),
-            backgroundColor: Colors.green,
-          ),
-        );
-        setState(() {});
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("GPS Update Error: $e"), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _updatingGPS = false);
-    }
-  }
-
-  void _showEditShopDetailsDialog(BuildContext context) {
-    final nameController = TextEditingController(text: widget.shopData?['shopName'] ?? '');
-    final addressController = TextEditingController(text: widget.shopData?['address'] ?? '');
-    final pincodeController = TextEditingController(text: widget.shopData?['pincode'] ?? '');
-    final mobileController = TextEditingController(text: widget.shopData?['mobile'] ?? '');
-
-    double? selectedLat = (widget.shopData?['latitude'] as num?)?.toDouble();
-    double? selectedLng = (widget.shopData?['longitude'] as num?)?.toDouble();
-
-    bool isSaving = false;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom,
-              ),
-              child: Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-                ),
-                padding: const EdgeInsets.all(24),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Center(
-                        child: Container(
-                          width: 40,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade300,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        "Edit Shop Profile & Address",
-                        style: GoogleFonts.inter(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                      Text(
-                        "Update your shop address and contact information",
-                        style: GoogleFonts.manrope(
-                          fontSize: 13,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Shop Name
-                      TextField(
-                        controller: nameController,
-                        decoration: InputDecoration(
-                          labelText: 'Shop Name',
-                          prefixIcon: const Icon(Icons.store_rounded, color: AppColors.primaryBlue),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Address
-                      TextField(
-                        controller: addressController,
-                        maxLines: 3,
-                        decoration: InputDecoration(
-                          labelText: 'Full Address',
-                          alignLabelWithHint: true,
-                          prefixIcon: const Icon(Icons.location_on_rounded, color: AppColors.primaryBlue),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final result = await MapLocationPickerSheet.show(
-                              context,
-                              initialLatitude: selectedLat,
-                              initialLongitude: selectedLng,
-                            );
-                            if (result != null) {
-                              setModalState(() {
-                                selectedLat = result.latitude;
-                                selectedLng = result.longitude;
-                                addressController.text = result.address;
-                                if (result.pincode.isNotEmpty) {
-                                  pincodeController.text = result.pincode;
-                                }
-                              });
-                            }
-                          },
-                          icon: const Icon(Icons.map_rounded, color: AppColors.primaryBlue),
-                          label: Text(
-                            selectedLat != null ? "PIN SET ON MAP (TAP TO CHANGE)" : "SELECT LOCATION ON MAP 🗺️",
-                            style: GoogleFonts.inter(fontWeight: FontWeight.w800, color: AppColors.primaryBlue),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.primaryBlue, width: 1.5),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: pincodeController,
-                              keyboardType: TextInputType.number,
-                              decoration: InputDecoration(
-                                labelText: 'Pincode',
-                                prefixIcon: const Icon(Icons.pin_drop_rounded, color: AppColors.primaryBlue),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextField(
-                              controller: mobileController,
-                              keyboardType: TextInputType.phone,
-                              decoration: InputDecoration(
-                                labelText: 'Mobile Number',
-                                prefixIcon: const Icon(Icons.phone_rounded, color: AppColors.primaryBlue),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 28),
-
-                      SizedBox(
-                        width: double.infinity,
-                        height: 56,
-                        child: ElevatedButton(
-                          onPressed: isSaving
-                              ? null
-                              : () async {
-                                  if (addressController.text.trim().isEmpty || nameController.text.trim().isEmpty) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text("Shop Name and Address cannot be empty")),
-                                    );
-                                    return;
-                                  }
-
-                                  setModalState(() => isSaving = true);
-                                  try {
-                                    final updatedData = <String, dynamic>{
-                                      'shopName': nameController.text.trim(),
-                                      'address': addressController.text.trim(),
-                                      'pincode': pincodeController.text.trim(),
-                                      'mobile': mobileController.text.trim(),
-                                      if (selectedLat != null && selectedLng != null) ...{
-                                        'latitude': selectedLat,
-                                        'longitude': selectedLng,
-                                        'location': GeoPoint(selectedLat!, selectedLng!),
-                                      },
-                                    };
-
-                                    final uid = widget.user.uid;
-                                    await FirebaseFirestore.instance.collection('shops').doc(uid).set(
-                                      updatedData,
-                                      SetOptions(merge: true),
-                                    );
-
-                                    try {
-                                      final psfcApp = Firebase.app('psfc');
-                                      final psfcFirestore = FirebaseFirestore.instanceFor(app: psfcApp);
-                                      await psfcFirestore.collection('users').doc(uid).set(
-                                        updatedData,
-                                        SetOptions(merge: true),
-                                      );
-                                    } catch (_) {}
-
-                                    if (context.mounted) {
-                                      Navigator.pop(context);
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text("✅ Shop address and details updated!"),
-                                          backgroundColor: Colors.green,
-                                        ),
-                                      );
-                                      setState(() {});
-                                    }
-                                  } catch (e) {
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text("Save Error: $e"), backgroundColor: Colors.red),
-                                      );
-                                    }
-                                  } finally {
-                                    if (context.mounted) setModalState(() => isSaving = false);
-                                  }
-                                },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primaryBlue,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          ),
-                          child: isSaving
-                              ? const CircularProgressIndicator(color: Colors.white)
-                              : Text(
-                                  "SAVE CHANGES",
-                                  style: GoogleFonts.inter(fontWeight: FontWeight.w900, letterSpacing: 1),
-                                ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
 
   Future<void> _downloadQR(BuildContext context) async {
     try {
@@ -455,7 +164,7 @@ class _ProfileTabState extends State<ProfileTab> {
                       const SizedBox(height: 6),
                       Text("Zikrint Services", style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textSecondary)),
                       const SizedBox(height: 2),
-                      Text("Contact: 9391392506", style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.textTertiary)),
+                      Text("Email: zikrint975@gmail.com", style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.textTertiary)),
                     ],
                   ),
                 ),
@@ -535,6 +244,244 @@ class _ProfileTabState extends State<ProfileTab> {
     }
   }
 
+  void _showEditShopProfileSheet(BuildContext context) {
+    final formKey = GlobalKey<FormState>();
+    final shopNameCtrl = TextEditingController(text: widget.shopData?['shopName']?.toString() ?? '');
+    final mobileCtrl = TextEditingController(text: () {
+      final m = widget.shopData?['mobile']?.toString() ?? '';
+      if (m.startsWith('+91 ')) return m.substring(4);
+      if (m.startsWith('+91')) return m.substring(3);
+      return m;
+    }());
+    final openCtrl = TextEditingController(text: widget.shopData?['openingTime']?.toString() ?? '9:00 AM');
+    final closeCtrl = TextEditingController(text: widget.shopData?['closingTime']?.toString() ?? '9:00 PM');
+    final pincodeCtrl = TextEditingController(text: widget.shopData?['pincode']?.toString() ?? '');
+    final addressCtrl = TextEditingController(text: widget.shopData?['address']?.toString() ?? '');
+
+    bool isSaving = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Container(
+              padding: EdgeInsets.fromLTRB(24, 24, 24, MediaQuery.of(sheetCtx).viewInsets.bottom + 24),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+              ),
+              child: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text("EDIT SHOP PROFILE", style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.textPrimary)),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 20, color: AppColors.textSecondary),
+                            onPressed: () => Navigator.pop(sheetCtx),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Shop Name
+                      Text("Shop Name", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textSecondary)),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: shopNameCtrl,
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 15),
+                        decoration: InputDecoration(
+                          hintText: 'Enter shop name',
+                          prefixIcon: const Icon(Icons.store_rounded, color: AppColors.primaryBlue),
+                          filled: true,
+                          fillColor: AppColors.background,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                        ),
+                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Shop name cannot be empty' : null,
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Mobile Number
+                      Text("Mobile Number", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textSecondary)),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: mobileCtrl,
+                        keyboardType: TextInputType.phone,
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 15),
+                        decoration: InputDecoration(
+                          hintText: 'Enter 10-digit mobile number',
+                          prefixIcon: const Icon(Icons.phone_rounded, color: AppColors.primaryBlue),
+                          filled: true,
+                          fillColor: AppColors.background,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                        ),
+                        validator: (v) => (v == null || v.trim().length < 10) ? 'Enter valid 10-digit mobile' : null,
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Timings Row
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("Opens At", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textSecondary)),
+                                const SizedBox(height: 6),
+                                TextFormField(
+                                  controller: openCtrl,
+                                  style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14),
+                                  decoration: InputDecoration(
+                                    hintText: '9:00 AM',
+                                    prefixIcon: const Icon(Icons.access_time_rounded, color: AppColors.primaryBlue, size: 18),
+                                    filled: true,
+                                    fillColor: AppColors.background,
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("Closes At", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textSecondary)),
+                                const SizedBox(height: 6),
+                                TextFormField(
+                                  controller: closeCtrl,
+                                  style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14),
+                                  decoration: InputDecoration(
+                                    hintText: '9:00 PM',
+                                    prefixIcon: const Icon(Icons.access_time_filled_rounded, color: AppColors.primaryBlue, size: 18),
+                                    filled: true,
+                                    fillColor: AppColors.background,
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Pincode
+                      Text("Pincode", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textSecondary)),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: pincodeCtrl,
+                        keyboardType: TextInputType.number,
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 15),
+                        decoration: InputDecoration(
+                          hintText: 'Enter 6-digit pincode',
+                          prefixIcon: const Icon(Icons.pin_drop_rounded, color: AppColors.primaryBlue),
+                          filled: true,
+                          fillColor: AppColors.background,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Address / Location
+                      Text("Shop Address / Location", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textSecondary)),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: addressCtrl,
+                        maxLines: 2,
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'Enter full shop address',
+                          prefixIcon: const Icon(Icons.location_on_rounded, color: AppColors.primaryBlue),
+                          filled: true,
+                          fillColor: AppColors.background,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Save Button
+                      ElevatedButton(
+                        onPressed: isSaving
+                            ? null
+                            : () async {
+                                if (formKey.currentState!.validate()) {
+                                  setSheetState(() => isSaving = true);
+                                  try {
+                                    final rawMob = mobileCtrl.text.trim();
+                                    final formattedMob = rawMob.startsWith('+') ? rawMob : '+91 $rawMob';
+
+                                    final updatedData = {
+                                      'shopName': shopNameCtrl.text.trim(),
+                                      'mobile': formattedMob,
+                                      'openingTime': openCtrl.text.trim(),
+                                      'closingTime': closeCtrl.text.trim(),
+                                      'pincode': pincodeCtrl.text.trim(),
+                                      'address': addressCtrl.text.trim(),
+                                    };
+
+                                    await AuthService().updateShopDetails(updatedData);
+
+                                    if (widget.shopData != null) {
+                                      widget.shopData!.addAll(updatedData);
+                                    }
+
+                                    if (mounted) setState(() {});
+
+                                    if (sheetCtx.mounted) {
+                                      Navigator.pop(sheetCtx);
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text("Shop profile updated successfully!"),
+                                          backgroundColor: Colors.green,
+                                        ),
+                                      );
+                                    }
+                                  } catch (e) {
+                                    setSheetState(() => isSaving = false);
+                                    if (sheetCtx.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text("Update error: $e"), backgroundColor: Colors.red),
+                                      );
+                                    }
+                                  }
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primaryBlue,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(double.infinity, 56),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          elevation: 0,
+                        ),
+                        child: isSaving
+                            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                            : const Text("SAVE PROFILE CHANGES", style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -544,6 +491,11 @@ class _ProfileTabState extends State<ProfileTab> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_note_rounded, color: AppColors.primaryBlue),
+            tooltip: 'Edit Shop Profile',
+            onPressed: () => _showEditShopProfileSheet(context),
+          ),
           IconButton(
             icon: const Icon(Icons.logout_rounded, color: AppColors.error),
             onPressed: () => AuthService().signOut(),
@@ -579,9 +531,22 @@ class _ProfileTabState extends State<ProfileTab> {
                   : null,
             ),
             const SizedBox(height: 16),
-            Text(
-              widget.shopData?['shopName'] ?? 'Captain Shop',
-              style: GoogleFonts.inter(fontSize: 24, fontWeight: FontWeight.w900, color: AppColors.textPrimary, letterSpacing: -0.5),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Flexible(
+                  child: Text(
+                    widget.shopData?['shopName'] ?? 'Captain Shop',
+                    style: GoogleFonts.inter(fontSize: 24, fontWeight: FontWeight.w900, color: AppColors.textPrimary, letterSpacing: -0.5),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined, size: 20, color: AppColors.primaryBlue),
+                  tooltip: 'Edit Profile',
+                  onPressed: () => _showEditShopProfileSheet(context),
+                ),
+              ],
             ),
             Text(widget.user.email ?? '', style: GoogleFonts.manrope(color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
             const SizedBox(height: 32),
@@ -593,19 +558,19 @@ class _ProfileTabState extends State<ProfileTab> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primaryBlue,
                 foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 56),
+                minimumSize: const Size(double.infinity, 60),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                 elevation: 0,
               ),
             ),
             const SizedBox(height: 12),
             OutlinedButton.icon(
-              onPressed: () => _showEditShopDetailsDialog(context),
-              icon: const Icon(Icons.edit_location_alt_rounded),
-              label: const Text("EDIT ADDRESS & SHOP DETAILS", style: TextStyle(fontWeight: FontWeight.bold)),
+              onPressed: () => _showEditShopProfileSheet(context),
+              icon: const Icon(Icons.edit_note_rounded),
+              label: const Text("EDIT SHOP PROFILE", style: TextStyle(fontWeight: FontWeight.bold)),
               style: OutlinedButton.styleFrom(
                 foregroundColor: AppColors.primaryBlue,
-                side: const BorderSide(color: AppColors.primaryBlue, width: 2),
+                side: BorderSide(color: AppColors.primaryBlue.withOpacity(0.3)),
                 minimumSize: const Size(double.infinity, 56),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               ),
@@ -614,52 +579,18 @@ class _ProfileTabState extends State<ProfileTab> {
             _buildNotificationStatusTile(),
             const Divider(height: 60),
             
-            _buildProfileItem(
-              Icons.phone,
-              'Mobile',
-              () {
-                final m = widget.shopData?['mobile']?.toString();
-                if (m == null || m.isEmpty) return 'N/A (Tap to edit)';
-                var c = m.trim();
-                if (c.startsWith('0')) c = c.substring(1).trim();
-                if (!c.startsWith('+')) return '+91 $c (Tap to edit)';
-                return '$c (Tap to edit)';
-              }(),
-              onTap: () => _showEditShopDetailsDialog(context),
-            ),
+            _buildProfileItem(Icons.phone, 'Mobile', () {
+              final m = widget.shopData?['mobile']?.toString();
+              if (m == null || m.isEmpty) return 'N/A';
+              var c = m.trim();
+              if (c.startsWith('0')) c = c.substring(1).trim();
+              if (!c.startsWith('+')) return '+91 $c';
+              return c;
+            }()),
             _buildProfileItem(Icons.login, 'Opens', widget.shopData?['openingTime']?.toString() ?? 'N/A'),
             _buildProfileItem(Icons.logout, 'Closes', widget.shopData?['closingTime']?.toString() ?? 'N/A'),
-            _buildProfileItem(
-              Icons.pin_drop,
-              'Pincode',
-              '${widget.shopData?['pincode']?.toString() ?? 'N/A'} (Tap to edit)',
-              onTap: () => _showEditShopDetailsDialog(context),
-            ),
-            _buildProfileItem(
-              Icons.location_on,
-              'Location Address',
-              '${widget.shopData?['address']?.toString() ?? 'N/A'} (Tap to edit)',
-              onTap: () => _showEditShopDetailsDialog(context),
-            ),
-            _buildProfileItem(
-              Icons.my_location_rounded,
-              'GPS Coordinates',
-              _updatingGPS
-                  ? 'Capturing high-accuracy GPS location...'
-                  : (() {
-                      final lat = widget.shopData?['latitude'];
-                      final lng = widget.shopData?['longitude'];
-                      if (lat != null && lng != null) {
-                        return '$lat, $lng (Tap to update)';
-                      }
-                      final loc = widget.shopData?['location'];
-                      if (loc is GeoPoint) {
-                        return '${loc.latitude}, ${loc.longitude} (Tap to update)';
-                      }
-                      return 'Not set (Tap to update GPS location)';
-                    })(),
-              onTap: () => _updateGPSLocation(context),
-            ),
+            _buildProfileItem(Icons.pin_drop, 'Pincode', widget.shopData?['pincode']?.toString() ?? 'N/A'),
+            _buildProfileItem(Icons.location_on, 'Location', widget.shopData?['address']?.toString() ?? 'N/A'),
             _buildProfileItem(
               Icons.print_rounded,
               'Zikrinter Services',
@@ -759,14 +690,8 @@ class _ProfileTabState extends State<ProfileTab> {
           const SizedBox(height: 24),
           _buildSupportAction(
             Icons.mail_outline_rounded, 
-            "rajupallapu975@gmail.com", 
-            () => launchUrl(Uri.parse("mailto:rajupallapu975@gmail.com"))
-          ),
-          const SizedBox(height: 12),
-          _buildSupportAction(
-            Icons.phone_in_talk_rounded, 
-            "+91 9391392506", 
-            () => launchUrl(Uri.parse("tel:+919391392506"))
+            "zikrint975@gmail.com", 
+            () => launchUrl(Uri.parse("mailto:zikrint975@gmail.com"))
           ),
         ],
       ),
